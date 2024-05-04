@@ -7,28 +7,20 @@ import (
 )
 
 // pretend its a global const
-var instance *mutations.MutationsDB
+var instance *mutations.MutationDB
 
-func InitDB(path string) error {
+func InitDB(path string, mutationSet *mutations.MutationSet) error {
 	var err error
 
-	instance, err = mutations.NewMutationDB(path)
+	instance, err = mutations.NewMutationDB(path, mutationSet)
 
 	return err
 }
 
-func FindSamples(array string, search string) (*[]mutations.Mutation, error) {
+func FindSamples(search string) (*mutations.MutationResults, error) {
 	if instance == nil {
 		return nil, fmt.Errorf("microarray db not initialized")
 	}
 
-	return instance.FindSamples(array, search)
-}
-
-func Expression(samples *mutations.MutationsReq) (*mutations.ExpressionData, error) {
-	if instance == nil {
-		return nil, fmt.Errorf("microarray db not initialized")
-	}
-
-	return instance.Expression(samples)
+	return instance.FindSamples(search)
 }
