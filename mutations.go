@@ -74,7 +74,7 @@ func (cache *MutationDBCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *MutationDBCache) DB(mutationSet *MutationSet) (*MutationDB, error) {
+func (cache *MutationDBCache) MutationDB(mutationSet *MutationSet) (*MutationDB, error) {
 	key := fmt.Sprintf("%s:%s", mutationSet.Assembly, mutationSet.Name)
 
 	_, ok := (*cache.cacheMap)[key]

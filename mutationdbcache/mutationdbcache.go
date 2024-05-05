@@ -25,6 +25,6 @@ func Dir() string {
 	return instance.Dir()
 }
 
-func DB(mutationSet *mutations.MutationSet) (*mutations.MutationDB, error) {
-	return instance.DB(mutationSet)
+func MutationDB(mutationSet *mutations.MutationSet) (*mutations.MutationDB, error) {
+	return instance.MutationDB(mutationSet)
 }
