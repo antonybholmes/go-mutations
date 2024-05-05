@@ -3,8 +3,11 @@ package mutations
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/antonybholmes/go-dna"
 	"github.com/antonybholmes/go-sys"
@@ -66,8 +69,42 @@ type MutationDBCache struct {
 }
 
 func NewMutationDBCache(dir string) *MutationDBCache {
+	assemblyEntries, err := os.ReadDir(dir)
+
+	if err != nil {
+		log.Fatal().Msgf("%s", err)
+	}
+
+	cacheMap := make(map[string]*MutationDB)
+
+	for _, assemblyEntry := range assemblyEntries {
+		if assemblyEntry.IsDir() {
+			setEntries, err := os.ReadDir(assemblyEntry.Name())
+
+			if err != nil {
+				log.Fatal().Msgf("%s", err)
+			}
+
+			for _, setEntry := range setEntries {
+				mutationSet := MutationSet{Name: setEntry.Name(), Assembly: assemblyEntry.Name()}
+
+				db, err := NewMutationDB(filepath.Join(dir, mutationSet.Assembly, fmt.Sprintf("%s.db", mutationSet.Name)), &mutationSet)
+
+				if err != nil {
+					log.Fatal().Msgf("%s", err)
+				}
+
+				key := fmt.Sprintf("%s:%s", mutationSet.Assembly, mutationSet.Name)
+
+				cacheMap[key] = db
+
+			}
+		}
+
+	}
+
 	return &MutationDBCache{dir: dir,
-		cacheMap: new(map[string]*MutationDB)}
+		cacheMap: &cacheMap}
 }
 
 func (cache *MutationDBCache) Dir() string {
