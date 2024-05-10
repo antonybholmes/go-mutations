@@ -3,6 +3,7 @@ package mutationdb
 import (
 	"fmt"
 
+	"github.com/antonybholmes/go-dna"
 	"github.com/antonybholmes/go-mutations"
 )
 
@@ -17,10 +18,10 @@ func InitDB(path string, mutationSet *mutations.MutationSet) error {
 	return err
 }
 
-func FindSamples(search string) (*mutations.MutationResults, error) {
+func FindMutations(location *dna.Location) (*mutations.MutationResults, error) {
 	if instance == nil {
-		return nil, fmt.Errorf("microarray db not initialized")
+		return nil, fmt.Errorf("mutation db not initialized")
 	}
 
-	return instance.FindSamples(search)
+	return instance.FindMutations(location)
 }

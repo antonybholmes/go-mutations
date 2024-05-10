@@ -19,8 +19,8 @@ const ALL_PLATFORMS_SQL = `SELECT uuid, name
 const PLATFORM_SAMPLES_SQL = `SELECT uuid, name
 	FROM samples WHERE platform = ?1 ORDER BY name`
 
-const FIND_MUTATIONS_SQL = `SELECT uuid, char, start, end, ref, mut, mut_type, vaf, sample, gene
-	FROM mutations name LIKE ?2 ORDER BY array, name`
+const FIND_MUTATIONS_SQL = `SELECT chr, start, end, ref, tum, variant_type, sample
+	FROM maf WHERE chr = ?1 AND start >= ?2 AND end <= ?3 ORDER BY chr, start, end, variant_type`
 
 type ExpressionDataIndex struct {
 	ProbeIds    []string
@@ -47,20 +47,26 @@ type MutationSet struct {
 }
 
 type Mutation struct {
-	Uuid   string  `json:"uuid"`
-	Chr    string  `json:"crh"`
-	Start  uint32  `json:"start"`
-	End    uint32  `json:"end"`
-	Ref    string  `json:"ref"`
-	Mut    string  `json:"mut"`
-	Vaf    float32 `json:"vaf"`
-	Sample string  `json:"sample"`
-	Gene   string  `json:"gene"`
+	Chr         string  `json:"chr"`
+	Start       uint    `json:"start"`
+	End         uint    `json:"end"`
+	Ref         string  `json:"ref"`
+	Mut         string  `json:"mut"`
+	VariantType string  `json:"variantType"`
+	Vaf         float32 `json:"vaf"`
+	Sample      string  `json:"sample"`
 }
 
 type MutationResults struct {
-	DB        *MutationSet `json:"db"`
-	Mutations []Mutation   `json:"mutations"`
+	Location  *dna.Location `json:"locaation"`
+	DB        *MutationSet  `json:"db"`
+	Mutations []*Mutation   `json:"mutations"`
+}
+
+type Pileup struct {
+	Location  *dna.Location `json:"locaation"`
+	DB        *MutationSet  `json:"db"`
+	Mutations [][]*Mutation `json:"mutations"`
 }
 
 type MutationDBCache struct {
@@ -141,7 +147,7 @@ type MutationDB struct {
 	DB                  *sql.DB
 	AllMutationSetsStmt *sql.Stmt
 	AllSamplesStmt      *sql.Stmt
-	FindSamplesStmt     *sql.Stmt
+	FindMutationsStmt   *sql.Stmt
 }
 
 func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
@@ -153,7 +159,7 @@ func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
 		Path:                dir,
 		AllMutationSetsStmt: sys.Must(db.Prepare(ALL_PLATFORMS_SQL)),
 		AllSamplesStmt:      sys.Must(db.Prepare(PLATFORM_SAMPLES_SQL)),
-		FindSamplesStmt:     sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
+		FindMutationsStmt:   sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
 	}, nil
 }
 
@@ -183,15 +189,44 @@ func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
 // 	return &mutationSets, nil
 // }
 
-func (db *MutationDB) FindSamples(search string) (*MutationResults, error) {
+func (db *MutationDB) FindMutations(location *dna.Location) (*MutationResults, error) {
 
-	rows, err := db.FindSamplesStmt.Query(fmt.Sprintf("%%%s%%", search))
+	rows, err := db.FindMutationsStmt.Query(location.Chr, location.Start, location.End)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return rowsToSamples(db.MutationSet, rows)
+	return rowsToMutations(location, db.MutationSet, rows)
+}
+
+func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
+
+	rows, err := db.FindMutationsStmt.Query(location.Chr, location.Start, location.End)
+
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := rowsToMutations(location, db.MutationSet, rows)
+
+	if err != nil {
+		return nil, err
+	}
+
+	pileup := make([][]*Mutation, location.Len())
+
+	for i := range location.Len() {
+		pileup[i] = []*Mutation{}
+	}
+
+	for _, mutation := range results.Mutations {
+		offset := mutation.Start - location.Start
+
+		pileup[offset] = append(pileup[offset], mutation)
+	}
+
+	return &Pileup{location, db.MutationSet, pileup}, nil
 }
 
 // func (mutationsdb *MutationsDB) Expression(samples *MutationsReq) (*ExpressionData, error) {
@@ -336,31 +371,31 @@ func (mutationsdb *MutationDB) Close() {
 	mutationsdb.DB.Close()
 }
 
-func rowsToSamples(mutationSet *MutationSet, rows *sql.Rows) (*MutationResults, error) {
+func rowsToMutations(location *dna.Location, mutationSet *MutationSet, rows *sql.Rows) (*MutationResults, error) {
 
-	mutations := []Mutation{}
+	mutations := []*Mutation{}
 
 	defer rows.Close()
 
 	for rows.Next() {
 		var mutation Mutation
 
-		err := rows.Scan(&mutation.Uuid,
+		err := rows.Scan(
 			&mutation.Chr,
 			&mutation.Start,
 			&mutation.End,
 			&mutation.Ref,
 			&mutation.Mut,
+			&mutation.VariantType,
 			&mutation.Vaf,
-			&mutation.Sample,
-			&mutation.Gene)
+			&mutation.Sample)
 
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		mutations = append(mutations, mutation)
+		mutations = append(mutations, &mutation)
 	}
 
-	return &MutationResults{mutationSet, mutations}, nil
+	return &MutationResults{location, mutationSet, mutations}, nil
 }
