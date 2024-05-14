@@ -58,13 +58,13 @@ type Mutation struct {
 }
 
 type MutationResults struct {
-	Location  *dna.Location `json:"locaation"`
+	Location  *dna.Location `json:"location"`
 	DB        *MutationSet  `json:"db"`
 	Mutations []*Mutation   `json:"mutations"`
 }
 
 type Pileup struct {
-	Location  *dna.Location `json:"locaation"`
+	Location  *dna.Location `json:"location"`
 	DB        *MutationSet  `json:"db"`
 	Mutations [][]*Mutation `json:"mutations"`
 }
