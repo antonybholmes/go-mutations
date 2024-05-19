@@ -9,12 +9,12 @@ import (
 var instance *mutations.MutationDBCache
 var once sync.Once
 
-func InitCache(dir string) *mutations.MutationDBCache {
+func InitCache(dir string) (*mutations.MutationDBCache, error) {
 	once.Do(func() {
 		instance = mutations.NewMutationDBCache(dir)
 	})
 
-	return instance
+	return instance, nil
 }
 
 func GetInstance() *mutations.MutationDBCache {
