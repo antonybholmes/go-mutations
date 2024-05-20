@@ -24,12 +24,13 @@ const FIND_MUTATIONS_SQL = `SELECT
 	tum, 
 	t_alt_count, 
 	t_depth, 
-	variant_type, 
+	variant_type,
+	vaf,
 	sample, 
 	dataset
 	FROM maf 
 	WHERE chr = ?1 AND start >= ?2 AND end <= ?3 
-	ORDER BY chr, start, end, variant_type`
+	ORDER BY chr, start, end, variant_type, dataset`
 
 type ExpressionDataIndex struct {
 	ProbeIds    []string
@@ -62,10 +63,10 @@ type Mutation struct {
 	Start       uint    `json:"start"`
 	End         uint    `json:"end"`
 	Ref         string  `json:"ref"`
-	Mut         string  `json:"mut"`
-	AltCount    int     `json:"altCount,omitempty"`
+	Tum         string  `json:"tum"`
+	Alt         int     `json:"alt,omitempty"`
 	Depth       int     `json:"depth,omitempty"`
-	VariantType string  `json:"variantType,omitempty"`
+	VariantType string  `json:"type,omitempty"`
 	Vaf         float32 `json:"vaf,omitempty"`
 	Sample      string  `json:"sample"`
 	Dataset     string  `json:"dataset,omitempty"`
@@ -78,9 +79,9 @@ type MutationResults struct {
 }
 
 type Pileup struct {
-	Location  *dna.Location `json:"location"`
-	DB        *MutationSet  `json:"db"`
-	Mutations [][]*Mutation `json:"mutations"`
+	Location    *dna.Location `json:"location"`
+	MutationSet *MutationSet  `json:"mutationSet"`
+	Mutations   [][]*Mutation `json:"mutations"`
 }
 
 type MutationDBCache struct {
@@ -469,8 +470,8 @@ func rowsToMutations(location *dna.Location, mutationSet *MutationSet, rows *sql
 			&mutation.Start,
 			&mutation.End,
 			&mutation.Ref,
-			&mutation.Mut,
-			&mutation.AltCount,
+			&mutation.Tum,
+			&mutation.Alt,
 			&mutation.Depth,
 			&mutation.VariantType,
 			&mutation.Vaf,
