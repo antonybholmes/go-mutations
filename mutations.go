@@ -7,19 +7,14 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/antonybholmes/go-dna"
 	"github.com/antonybholmes/go-sys"
 	"github.com/rs/zerolog/log"
 )
 
-const ALL_PLATFORMS_SQL = `SELECT uuid, name
-	FROM platforms ORDER BY name`
-
-const PLATFORM_SAMPLES_SQL = `SELECT uuid, name
-	FROM samples WHERE platform = ?1 ORDER BY name`
-
-const META_SQL = `SELECT name, description FROM meta`
+const META_SQL = `SELECT samples FROM metadata`
 
 const FIND_MUTATIONS_SQL = `SELECT 
 	chr, 
@@ -27,8 +22,8 @@ const FIND_MUTATIONS_SQL = `SELECT
 	end, 
 	ref, 
 	tum, 
-	alt_count, 
-	depth, 
+	t_alt_count, 
+	t_depth, 
 	variant_type, 
 	sample, 
 	dataset
@@ -48,11 +43,6 @@ type ExpressionData struct {
 	Index  ExpressionDataIndex
 }
 
-type Meta struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
 type MutationsReq struct {
 	Assembly string        `json:"assembly"`
 	Location *dna.Location `json:"location"`
@@ -60,9 +50,11 @@ type MutationsReq struct {
 }
 
 type MutationSet struct {
-	Uuid     string `json:"uuid"`
-	Name     string `json:"name"`
-	Assembly string `json:"assembly"`
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	Assembly    string `json:"assembly"`
+	Description string `json:"description"`
+	Samples     uint   `json:"samples"`
 }
 
 type Mutation struct {
@@ -96,6 +88,11 @@ type MutationDBCache struct {
 	cacheMap map[string]map[string]*MutationDB
 }
 
+func NewMutationSet(assembly string, name string) *MutationSet {
+	id := fmt.Sprintf("%s:%s", assembly, name)
+	return &MutationSet{Id: id, Assembly: assembly, Name: name, Description: "", Samples: 0}
+}
+
 func NewMutationDBCache(dir string) *MutationDBCache {
 
 	cacheMap := make(map[string]map[string]*MutationDB)
@@ -103,22 +100,28 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 	assemblyFiles, err := os.ReadDir(dir)
 
 	if err != nil {
-		log.Fatal().Msgf("%s", err)
+		log.Fatal().Msgf("error opening %s", dir)
 	}
 
 	for _, assemblyFile := range assemblyFiles {
 		if assemblyFile.IsDir() {
-			dbFiles, err := os.ReadDir(assemblyFile.Name())
+			dbFiles, err := os.ReadDir(filepath.Join(dir, assemblyFile.Name()))
 
 			if err != nil {
 				log.Fatal().Msgf("%s", err)
 
 			}
 
-			for _, dbFile := range dbFiles {
-				mutationSet := MutationSet{Name: dbFile.Name(), Assembly: assemblyFile.Name()}
+			// init the cache
+			cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
 
-				db, err := NewMutationDB(filepath.Join(dir, mutationSet.Assembly, fmt.Sprintf("%s.db", mutationSet.Name)), &mutationSet)
+			for _, dbFile := range dbFiles {
+
+				mutationSet := NewMutationSet(assemblyFile.Name(), dbFile.Name())
+
+				path := filepath.Join(dir, mutationSet.Assembly, mutationSet.Name)
+
+				db, err := NewMutationDB(path, mutationSet)
 
 				if err != nil {
 					log.Fatal().Msgf("%s", err)
@@ -126,9 +129,7 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 
 				//key := fmt.Sprintf("%s:%s", mutationSet.Assembly, mutationSet.Name)
 
-				cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
-
-				cacheMap[assemblyFile.Name()][dbFile.Name()] = db
+				cacheMap[mutationSet.Assembly][mutationSet.Name] = db
 
 			}
 		}
@@ -142,55 +143,69 @@ func (cache *MutationDBCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *MutationDBCache) List() []*MutationDB {
+func (cache *MutationDBCache) List() []*MutationSet {
 
-	ret := make([]*MutationDB, len(cache.cacheMap))
+	ret := make([]*MutationSet, 0, len(cache.cacheMap))
 
-	assemblies := make([]string, len(cache.cacheMap))
+	assemblies := make([]string, 0, len(cache.cacheMap))
 
 	for assembly := range cache.cacheMap {
 		assemblies = append(assemblies, assembly)
 	}
 	sort.Strings(assemblies)
 
+	log.Debug().Msgf("%s blob", assemblies)
+
 	for _, assembly := range assemblies {
-		dbs := make([]string, len(cache.cacheMap[assembly]))
+		dbs := make([]string, 0, len(cache.cacheMap[assembly]))
 
 		for db := range cache.cacheMap[assembly] {
 			dbs = append(dbs, db)
 		}
 		sort.Strings(dbs)
 
+		log.Debug().Msgf("%s blob2", dbs)
+
 		for _, db := range dbs {
-			ret = append(ret, cache.cacheMap[assembly][db])
+			ret = append(ret, cache.cacheMap[assembly][db].MutationSet())
 		}
 	}
 
 	return ret
 }
 
-func (cache *MutationDBCache) MutationDB(mutationSet *MutationSet) (*MutationDB, error) {
-	//key := fmt.Sprintf("%s:%s", mutationSet.Assembly, mutationSet.Name)
+func (cache *MutationDBCache) MutationDBFromId(id string) (*MutationDB, error) {
+	tokens := strings.Split(id, ":")
 
-	_, ok := cache.cacheMap[mutationSet.Assembly]
-
-	if !ok {
-		cache.cacheMap[mutationSet.Assembly] = make(map[string]*MutationDB)
+	if len(tokens) < 2 {
+		return nil, fmt.Errorf("mutations %s is not a valid id", id)
 	}
 
-	_, ok = cache.cacheMap[mutationSet.Assembly][mutationSet.Name]
+	assembly := tokens[0]
+	name := tokens[1]
+
+	return cache.MutationDB(assembly, name)
+}
+
+func (cache *MutationDBCache) MutationDBFromMutationSet(mutationSet *MutationSet) (*MutationDB, error) {
+	return cache.MutationDB(mutationSet.Assembly, mutationSet.Name)
+}
+
+func (cache *MutationDBCache) MutationDB(assembly string, name string) (*MutationDB, error) {
+
+	_, ok := cache.cacheMap[assembly]
 
 	if !ok {
-		db, err := NewMutationDB(filepath.Join(cache.dir, fmt.Sprintf("%s.db", mutationSet.Assembly)), mutationSet)
-
-		if err != nil {
-			return nil, err
-		}
-
-		cache.cacheMap[mutationSet.Assembly][mutationSet.Name] = db
+		return nil, fmt.Errorf("mutations: %s is not a valid assembly", assembly)
 	}
 
-	return cache.cacheMap[mutationSet.Assembly][mutationSet.Name], nil
+	_, ok = cache.cacheMap[assembly][name]
+
+	if !ok {
+		return nil, fmt.Errorf("mutations: %s is not a valid name", name)
+	}
+
+	return cache.cacheMap[assembly][name], nil
 }
 
 func (cache *MutationDBCache) Close() {
@@ -202,26 +217,29 @@ func (cache *MutationDBCache) Close() {
 }
 
 type MutationDB struct {
-	MutationSet         *MutationSet
-	Path                string
-	DB                  *sql.DB
-	MetaStmt            *sql.Stmt
-	AllMutationSetsStmt *sql.Stmt
-	AllSamplesStmt      *sql.Stmt
-	FindMutationsStmt   *sql.Stmt
+	mutationSet       *MutationSet
+	Path              string
+	db                *sql.DB
+	findMutationsStmt *sql.Stmt
 }
 
 func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
-	db := sys.Must(sql.Open("sqlite3", path.Join(dir, "mutations.db")))
+	db := sys.Must(sql.Open("sqlite3", path.Join(dir, "maf.db")))
+
+	metaStmt := sys.Must(db.Prepare(META_SQL))
+
+	err := metaStmt.QueryRow().Scan(
+		&mutationSet.Samples)
+
+	if err != nil {
+		log.Fatal().Msgf("%s", err)
+	}
 
 	return &MutationDB{
-		MutationSet:         mutationSet,
-		DB:                  db,
-		Path:                dir,
-		MetaStmt:            sys.Must(db.Prepare(META_SQL)),
-		AllMutationSetsStmt: sys.Must(db.Prepare(ALL_PLATFORMS_SQL)),
-		AllSamplesStmt:      sys.Must(db.Prepare(PLATFORM_SAMPLES_SQL)),
-		FindMutationsStmt:   sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
+		mutationSet:       mutationSet,
+		db:                db,
+		Path:              dir,
+		findMutationsStmt: sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
 	}, nil
 }
 
@@ -251,41 +269,30 @@ func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
 // 	return &mutationSets, nil
 // }
 
-func (db *MutationDB) Meta() (*Meta, error) {
-	var meta Meta
-
-	err := db.MetaStmt.QueryRow().Scan(
-		&meta.Name,
-		&meta.Description)
-
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	return &meta, nil
-
+func (db *MutationDB) MutationSet() *MutationSet {
+	return db.mutationSet
 }
 
 func (db *MutationDB) FindMutations(location *dna.Location) (*MutationResults, error) {
 
-	rows, err := db.FindMutationsStmt.Query(location.Chr, location.Start, location.End)
+	rows, err := db.findMutationsStmt.Query(location.Chr, location.Start, location.End)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return rowsToMutations(location, db.MutationSet, rows)
+	return rowsToMutations(location, db.mutationSet, rows)
 }
 
 func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 
-	rows, err := db.FindMutationsStmt.Query(location.Chr, location.Start, location.End)
+	rows, err := db.findMutationsStmt.Query(location.Chr, location.Start, location.End)
 
 	if err != nil {
 		return nil, err
 	}
 
-	results, err := rowsToMutations(location, db.MutationSet, rows)
+	results, err := rowsToMutations(location, db.mutationSet, rows)
 
 	if err != nil {
 		return nil, err
@@ -303,7 +310,7 @@ func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		pileup[offset] = append(pileup[offset], mutation)
 	}
 
-	return &Pileup{location, db.MutationSet, pileup}, nil
+	return &Pileup{location, db.mutationSet, pileup}, nil
 }
 
 // func (mutationsdb *MutationsDB) Expression(samples *MutationsReq) (*ExpressionData, error) {
@@ -445,7 +452,7 @@ func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 // }
 
 func (mutationsdb *MutationDB) Close() {
-	mutationsdb.DB.Close()
+	mutationsdb.db.Close()
 }
 
 func rowsToMutations(location *dna.Location, mutationSet *MutationSet, rows *sql.Rows) (*MutationResults, error) {
