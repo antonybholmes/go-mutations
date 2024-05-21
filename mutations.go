@@ -299,19 +299,119 @@ func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		return nil, err
 	}
 
+	// first lets fix deletions and insertions
+
+	for _, mutation := range results.Mutations {
+		// change for sorting purposes so that ins always comes last
+		switch mutation.VariantType {
+		case "DEL":
+			mutation.VariantType = "2:DEL"
+		case "INS":
+			mutation.VariantType = "3:INS"
+			mutation.Tum = fmt.Sprintf("^%s", mutation.Tum)
+		default:
+			mutation.VariantType = "1:SNP"
+		}
+	}
+
+	// put together by position, type, tum
+
+	pileupMap := make(map[uint]map[string]map[string][]*Mutation)
+
+	for _, mutation := range results.Mutations {
+
+		switch mutation.VariantType {
+		case "2:DEL":
+			for i := range mutation.End - mutation.Start + 1 {
+				addToPileupMap(&pileupMap, mutation.Start+i, mutation)
+			}
+		case "3:INS":
+			addToPileupMap(&pileupMap, mutation.Start, mutation)
+		default:
+			// deal with concatenated snps
+			tum := []rune(mutation.Tum)
+			for i := range len(tum) {
+				// clone and change tumor
+				mut := *mutation
+				mut.Tum = string(tum[i])
+				addToPileupMap(&pileupMap, mutation.Start+uint(i), &mut)
+			}
+		}
+	}
+
+	// init pileup
 	pileup := make([][]*Mutation, location.Len())
 
 	for i := range location.Len() {
 		pileup[i] = []*Mutation{}
 	}
 
-	for _, mutation := range results.Mutations {
-		offset := mutation.Start - location.Start
+	starts := make([]uint, 0, len(pileupMap))
 
-		pileup[offset] = append(pileup[offset], mutation)
+	for start := range pileupMap {
+		starts = append(starts, start)
+	}
+
+	log.Debug().Msgf("aha %s", starts)
+
+	sort.Slice(starts, func(i, j int) bool { return starts[i] < starts[j] })
+
+	for _, start := range starts {
+		variantTypes := make([]string, 0, len(pileupMap[start]))
+
+		for variantType := range pileupMap[start] {
+			variantTypes = append(variantTypes, variantType)
+		}
+
+		sort.Strings(variantTypes)
+
+		for _, variantType := range variantTypes {
+			tumors := make([]string, 0, len(pileupMap[start][variantType]))
+
+			for tumor := range pileupMap[start][variantType] {
+				tumors = append(tumors, tumor)
+			}
+
+			sort.Strings(tumors)
+
+			for _, tumor := range tumors {
+				mutations := pileupMap[start][variantType][tumor]
+
+				for _, mutation := range mutations {
+					offset := start - location.Start
+
+					pileup[offset] = append(pileup[offset], mutation)
+				}
+
+			}
+
+		}
 	}
 
 	return &Pileup{location, db.mutationSet, pileup}, nil
+}
+
+func addToPileupMap(pileupMap *map[uint]map[string]map[string][]*Mutation, start uint, mutation *Mutation) {
+
+	_, ok := (*pileupMap)[start]
+
+	if !ok {
+		(*pileupMap)[start] = make(map[string]map[string][]*Mutation)
+	}
+
+	_, ok = (*pileupMap)[start][mutation.VariantType]
+
+	if !ok {
+		(*pileupMap)[start][mutation.VariantType] = make(map[string][]*Mutation)
+	}
+
+	_, ok = (*pileupMap)[start][mutation.VariantType][mutation.Tum]
+
+	if !ok {
+		(*pileupMap)[start][mutation.VariantType][mutation.Tum] = make([]*Mutation, 0, 10)
+	}
+
+	(*pileupMap)[start][mutation.VariantType][mutation.Tum] = append((*pileupMap)[start][mutation.VariantType][mutation.Tum], mutation)
 }
 
 // func (mutationsdb *MutationsDB) Expression(samples *MutationsReq) (*ExpressionData, error) {
