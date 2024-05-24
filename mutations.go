@@ -7,7 +7,6 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/antonybholmes/go-dna"
 	"github.com/antonybholmes/go-sys"
@@ -50,7 +49,7 @@ type MutationsReq struct {
 	Samples  []string      `json:"samples"`
 }
 
-type MutationSet struct {
+type MutationDBMetaData struct {
 	Id          string `json:"id"`
 	Name        string `json:"name"`
 	Assembly    string `json:"assembly"`
@@ -73,30 +72,35 @@ type Mutation struct {
 }
 
 type MutationResults struct {
-	Location  *dna.Location `json:"location"`
-	DB        *MutationSet  `json:"db"`
-	Mutations []*Mutation   `json:"mutations"`
+	Location  *dna.Location       `json:"location"`
+	DB        *MutationDBMetaData `json:"db"`
+	Mutations []*Mutation         `json:"mutations"`
 }
 
 type Pileup struct {
-	Location    *dna.Location `json:"location"`
-	MutationSet *MutationSet  `json:"mutationSet"`
-	Mutations   [][]*Mutation `json:"mutations"`
+	Location *dna.Location       `json:"location"`
+	Metadata *MutationDBMetaData `json:"metadata"`
+	//Samples   uint                  `json:"samples"`
+	Mutations [][]*Mutation `json:"mutations"`
 }
 
 type MutationDBCache struct {
 	dir      string
-	cacheMap map[string]map[string]*MutationDB
+	cacheMap map[string]*MutationDB
 }
 
-func NewMutationSet(assembly string, name string) *MutationSet {
-	id := fmt.Sprintf("%s:%s", assembly, name)
-	return &MutationSet{Id: id, Assembly: assembly, Name: name, Description: "", Samples: 0}
+func MutationDBKey(assembly string, name string) string {
+	return fmt.Sprintf("%s:%s", assembly, name)
+}
+
+func NewMutationDBMetaData(assembly string, name string) *MutationDBMetaData {
+	id := MutationDBKey(assembly, name)
+	return &MutationDBMetaData{Id: id, Assembly: assembly, Name: name, Description: "", Samples: 0}
 }
 
 func NewMutationDBCache(dir string) *MutationDBCache {
 
-	cacheMap := make(map[string]map[string]*MutationDB)
+	cacheMap := make(map[string]*MutationDB)
 
 	assemblyFiles, err := os.ReadDir(dir)
 
@@ -106,6 +110,7 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 
 	for _, assemblyFile := range assemblyFiles {
 		if assemblyFile.IsDir() {
+
 			dbFiles, err := os.ReadDir(filepath.Join(dir, assemblyFile.Name()))
 
 			if err != nil {
@@ -114,23 +119,25 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 			}
 
 			// init the cache
-			cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
+			//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
 
 			for _, dbFile := range dbFiles {
 
-				mutationSet := NewMutationSet(assemblyFile.Name(), dbFile.Name())
+				log.Debug().Msgf("Loading mutations from %s...", dbFile.Name())
 
-				path := filepath.Join(dir, mutationSet.Assembly, mutationSet.Name)
+				metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
 
-				db, err := NewMutationDB(path, mutationSet)
+				path := filepath.Join(dir, metadata.Assembly, metadata.Name)
+
+				db, err := NewMutationDB(path, metadata)
 
 				if err != nil {
 					log.Fatal().Msgf("%s", err)
 				}
 
-				//key := fmt.Sprintf("%s:%s", mutationSet.Assembly, mutationSet.Name)
+				key := MutationDBKey(metadata.Assembly, metadata.Name)
 
-				cacheMap[mutationSet.Assembly][mutationSet.Name] = db
+				cacheMap[key] = db
 
 			}
 		}
@@ -144,100 +151,70 @@ func (cache *MutationDBCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *MutationDBCache) List() []*MutationSet {
+func (cache *MutationDBCache) List() []*MutationDBMetaData {
 
-	ret := make([]*MutationSet, 0, len(cache.cacheMap))
+	ret := make([]*MutationDBMetaData, 0, len(cache.cacheMap))
 
-	assemblies := make([]string, 0, len(cache.cacheMap))
+	ids := make([]string, 0, len(cache.cacheMap))
 
-	for assembly := range cache.cacheMap {
-		assemblies = append(assemblies, assembly)
+	for id := range cache.cacheMap {
+		ids = append(ids, id)
 	}
-	sort.Strings(assemblies)
+	sort.Strings(ids)
 
-	log.Debug().Msgf("%s blob", assemblies)
-
-	for _, assembly := range assemblies {
-		dbs := make([]string, 0, len(cache.cacheMap[assembly]))
-
-		for db := range cache.cacheMap[assembly] {
-			dbs = append(dbs, db)
-		}
-		sort.Strings(dbs)
-
-		log.Debug().Msgf("%s blob2", dbs)
-
-		for _, db := range dbs {
-			ret = append(ret, cache.cacheMap[assembly][db].MutationSet())
-		}
+	for _, id := range ids {
+		ret = append(ret, cache.cacheMap[id].Metadata)
 	}
 
 	return ret
 }
 
 func (cache *MutationDBCache) MutationDBFromId(id string) (*MutationDB, error) {
-	tokens := strings.Split(id, ":")
+	db, ok := cache.cacheMap[id]
 
-	if len(tokens) < 2 {
-		return nil, fmt.Errorf("mutations %s is not a valid id", id)
+	if !ok {
+		return nil, fmt.Errorf("mutations: %s is not a valid assembly", id)
 	}
 
-	assembly := tokens[0]
-	name := tokens[1]
-
-	return cache.MutationDB(assembly, name)
+	return db, nil
 }
 
-func (cache *MutationDBCache) MutationDBFromMutationSet(mutationSet *MutationSet) (*MutationDB, error) {
+func (cache *MutationDBCache) MutationDBFromMutationSet(mutationSet *MutationDBMetaData) (*MutationDB, error) {
 	return cache.MutationDB(mutationSet.Assembly, mutationSet.Name)
 }
 
 func (cache *MutationDBCache) MutationDB(assembly string, name string) (*MutationDB, error) {
 
-	_, ok := cache.cacheMap[assembly]
-
-	if !ok {
-		return nil, fmt.Errorf("mutations: %s is not a valid assembly", assembly)
-	}
-
-	_, ok = cache.cacheMap[assembly][name]
-
-	if !ok {
-		return nil, fmt.Errorf("mutations: %s is not a valid name", name)
-	}
-
-	return cache.cacheMap[assembly][name], nil
+	return cache.MutationDBFromId(MutationDBKey(assembly, name))
 }
 
 func (cache *MutationDBCache) Close() {
-	for _, dbs := range cache.cacheMap {
-		for _, db := range dbs {
-			db.Close()
-		}
+	for _, db := range cache.cacheMap {
+		db.Close()
 	}
 }
 
 type MutationDB struct {
-	mutationSet       *MutationSet
+	Metadata          *MutationDBMetaData
 	Path              string
 	db                *sql.DB
 	findMutationsStmt *sql.Stmt
 }
 
-func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
+func NewMutationDB(dir string, metadata *MutationDBMetaData) (*MutationDB, error) {
 	db := sys.Must(sql.Open("sqlite3", path.Join(dir, "maf.db")))
 
 	metaStmt := sys.Must(db.Prepare(META_SQL))
 
 	err := metaStmt.QueryRow().Scan(
-		&mutationSet.Samples)
+		&metadata.Samples)
 
 	if err != nil {
 		log.Fatal().Msgf("%s", err)
 	}
 
 	return &MutationDB{
-		mutationSet:       mutationSet,
+		Metadata:          metadata,
 		db:                db,
 		Path:              dir,
 		findMutationsStmt: sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
@@ -270,10 +247,6 @@ func NewMutationDB(dir string, mutationSet *MutationSet) (*MutationDB, error) {
 // 	return &mutationSets, nil
 // }
 
-func (db *MutationDB) MutationSet() *MutationSet {
-	return db.mutationSet
-}
-
 func (db *MutationDB) FindMutations(location *dna.Location) (*MutationResults, error) {
 
 	rows, err := db.findMutationsStmt.Query(location.Chr, location.Start, location.End)
@@ -282,7 +255,7 @@ func (db *MutationDB) FindMutations(location *dna.Location) (*MutationResults, e
 		return nil, err
 	}
 
-	return rowsToMutations(location, db.mutationSet, rows)
+	return rowsToMutations(location, db.Metadata, rows)
 }
 
 func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
@@ -293,7 +266,7 @@ func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		return nil, err
 	}
 
-	results, err := rowsToMutations(location, db.mutationSet, rows)
+	results, err := rowsToMutations(location, db.Metadata, rows)
 
 	if err != nil {
 		return nil, err
@@ -388,7 +361,7 @@ func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		}
 	}
 
-	return &Pileup{location, db.mutationSet, pileup}, nil
+	return &Pileup{location, db.Metadata, pileup}, nil
 }
 
 func addToPileupMap(pileupMap *map[uint]map[string]map[string][]*Mutation, start uint, mutation *Mutation) {
@@ -556,7 +529,7 @@ func (mutationsdb *MutationDB) Close() {
 	mutationsdb.db.Close()
 }
 
-func rowsToMutations(location *dna.Location, mutationSet *MutationSet, rows *sql.Rows) (*MutationResults, error) {
+func rowsToMutations(location *dna.Location, mutationSet *MutationDBMetaData, rows *sql.Rows) (*MutationResults, error) {
 
 	mutations := []*Mutation{}
 

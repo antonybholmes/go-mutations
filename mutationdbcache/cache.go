@@ -28,3 +28,7 @@ func Dir() string {
 func MutationDB(assembly string, name string) (*mutations.MutationDB, error) {
 	return instance.MutationDB(assembly, name)
 }
+
+func MutationDBFromId(id string) (*mutations.MutationDB, error) {
+	return instance.MutationDBFromId(id)
+}
