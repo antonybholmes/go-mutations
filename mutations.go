@@ -49,7 +49,7 @@ type MutationsReq struct {
 	Samples  []string      `json:"samples"`
 }
 
-type MutationDBMetaData struct {
+type MutationDBMetadata struct {
 	Id          string `json:"id"`
 	Name        string `json:"name"`
 	Assembly    string `json:"assembly"`
@@ -73,13 +73,13 @@ type Mutation struct {
 
 type MutationResults struct {
 	Location  *dna.Location       `json:"location"`
-	DB        *MutationDBMetaData `json:"db"`
+	Metadata  *MutationDBMetadata `json:"metadata"`
 	Mutations []*Mutation         `json:"mutations"`
 }
 
 type Pileup struct {
 	Location *dna.Location       `json:"location"`
-	Metadata *MutationDBMetaData `json:"metadata"`
+	Metadata *MutationDBMetadata `json:"metadata"`
 	//Samples   uint                  `json:"samples"`
 	Mutations [][]*Mutation `json:"mutations"`
 }
@@ -93,9 +93,15 @@ func MutationDBKey(assembly string, name string) string {
 	return fmt.Sprintf("%s:%s", assembly, name)
 }
 
-func NewMutationDBMetaData(assembly string, name string) *MutationDBMetaData {
-	id := MutationDBKey(assembly, name)
-	return &MutationDBMetaData{Id: id, Assembly: assembly, Name: name, Description: "", Samples: 0}
+func NewMutationDBMetaData(assembly string, name string) *MutationDBMetadata {
+
+	return &MutationDBMetadata{
+		Id:          MutationDBKey(assembly, name),
+		Assembly:    assembly,
+		Name:        name,
+		Description: "",
+		Samples:     0,
+	}
 }
 
 func NewMutationDBCache(dir string) *MutationDBCache {
@@ -138,7 +144,6 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 				key := MutationDBKey(metadata.Assembly, metadata.Name)
 
 				cacheMap[key] = db
-
 			}
 		}
 
@@ -151,15 +156,16 @@ func (cache *MutationDBCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *MutationDBCache) List() []*MutationDBMetaData {
+func (cache *MutationDBCache) List() []*MutationDBMetadata {
 
-	ret := make([]*MutationDBMetaData, 0, len(cache.cacheMap))
+	ret := make([]*MutationDBMetadata, 0, len(cache.cacheMap))
 
 	ids := make([]string, 0, len(cache.cacheMap))
 
 	for id := range cache.cacheMap {
 		ids = append(ids, id)
 	}
+
 	sort.Strings(ids)
 
 	for _, id := range ids {
@@ -179,12 +185,11 @@ func (cache *MutationDBCache) MutationDBFromId(id string) (*MutationDB, error) {
 	return db, nil
 }
 
-func (cache *MutationDBCache) MutationDBFromMutationSet(mutationSet *MutationDBMetaData) (*MutationDB, error) {
-	return cache.MutationDB(mutationSet.Assembly, mutationSet.Name)
+func (cache *MutationDBCache) MutationDBFromMetadata(metadata *MutationDBMetadata) (*MutationDB, error) {
+	return cache.MutationDB(metadata.Assembly, metadata.Name)
 }
 
 func (cache *MutationDBCache) MutationDB(assembly string, name string) (*MutationDB, error) {
-
 	return cache.MutationDBFromId(MutationDBKey(assembly, name))
 }
 
@@ -195,13 +200,13 @@ func (cache *MutationDBCache) Close() {
 }
 
 type MutationDB struct {
-	Metadata          *MutationDBMetaData
+	Metadata          *MutationDBMetadata
 	Path              string
 	db                *sql.DB
 	findMutationsStmt *sql.Stmt
 }
 
-func NewMutationDB(dir string, metadata *MutationDBMetaData) (*MutationDB, error) {
+func NewMutationDB(dir string, metadata *MutationDBMetadata) (*MutationDB, error) {
 	db := sys.Must(sql.Open("sqlite3", path.Join(dir, "maf.db")))
 
 	metaStmt := sys.Must(db.Prepare(META_SQL))
@@ -529,7 +534,7 @@ func (mutationsdb *MutationDB) Close() {
 	mutationsdb.db.Close()
 }
 
-func rowsToMutations(location *dna.Location, mutationSet *MutationDBMetaData, rows *sql.Rows) (*MutationResults, error) {
+func rowsToMutations(location *dna.Location, metadata *MutationDBMetadata, rows *sql.Rows) (*MutationResults, error) {
 
 	mutations := []*Mutation{}
 
@@ -558,5 +563,5 @@ func rowsToMutations(location *dna.Location, mutationSet *MutationDBMetaData, ro
 		mutations = append(mutations, &mutation)
 	}
 
-	return &MutationResults{location, mutationSet, mutations}, nil
+	return &MutationResults{location, metadata, mutations}, nil
 }
