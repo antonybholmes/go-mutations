@@ -330,8 +330,6 @@ func (db *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		starts = append(starts, start)
 	}
 
-	log.Debug().Msgf("aha %s", starts)
-
 	sort.Slice(starts, func(i, j int) bool { return starts[i] < starts[j] })
 
 	for _, start := range starts {

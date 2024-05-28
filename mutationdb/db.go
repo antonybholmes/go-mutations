@@ -8,10 +8,10 @@ import (
 // pretend its a global const
 var instance *mutations.MutationDB
 
-func InitDB(path string, mutationSet *mutations.MutationSet) error {
+func InitDB(path string, metadata *mutations.MutationDBMetadata) error {
 	var err error
 
-	instance, err = mutations.NewMutationDB(path, mutationSet)
+	instance, err = mutations.NewMutationDB(path, metadata)
 
 	return err
 }
