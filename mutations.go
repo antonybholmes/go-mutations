@@ -110,6 +110,8 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 
 	assemblyFiles, err := os.ReadDir(dir)
 
+	log.Debug().Msgf("---- mutations ----")
+
 	if err != nil {
 		log.Fatal().Msgf("error opening %s", dir)
 	}
@@ -146,8 +148,9 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 				cacheMap[key] = db
 			}
 		}
-
 	}
+
+	log.Debug().Msgf("---- end ----")
 
 	return &MutationDBCache{dir, cacheMap}
 }
