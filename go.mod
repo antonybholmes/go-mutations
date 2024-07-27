@@ -8,7 +8,6 @@ replace github.com/antonybholmes/go-sys => ../go-sys
 
 require (
 	github.com/antonybholmes/go-dna v0.0.0-20240605222456-64515d092f41
-	github.com/antonybholmes/go-sys v0.0.0-20240505052557-9f8864ac77aa
 	github.com/rs/zerolog v1.33.0
 )
 
