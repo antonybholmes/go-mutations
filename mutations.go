@@ -12,14 +12,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const META_SQL = "SELECT public_id, name, description, assembly FROM metadata"
+const META_SQL = "SELECT uuid, public_id, name, description, assembly FROM metadata"
 
-const DATASETS_SQL = `SELECT
-	name
-	FROM datasets 
-	ORDER BY datasets.name`
+// const DATASETS_SQL = `SELECT
+// 	name
+// 	FROM datasets
+// 	ORDER BY datasets.name`
 
-const SAMPLES_SQL = `SELECT 
+const SAMPLES_SQL = `SELECT
+	uuid,
 	name, 
 	coo, 
 	lymphgen, 
@@ -64,14 +65,15 @@ type MutationsReq struct {
 	Samples  []string      `json:"samples"`
 }
 
-type MutationDBMetadata struct {
-	Id          string `json:"id"`
-	PublicId    string `json:"publicId"`
-	Name        string `json:"name"`
-	Assembly    string `json:"assembly"`
-	Description string `json:"description"`
-	Samples     uint   `json:"samples"`
-}
+// type MutationDBMetadata struct {
+// 	Id          string `json:"id"`
+// 	Uuid        string `json:"uuid"`
+// 	PublicId    string `json:"publicId"`
+// 	Name        string `json:"name"`
+// 	Assembly    string `json:"assembly"`
+// 	Description string `json:"description"`
+// 	Samples     uint   `json:"samples"`
+// }
 
 // type MutationDBDataSet struct {
 // 	Name string `json:"name"`
@@ -88,11 +90,18 @@ type MutationDBSample struct {
 	Dataset         string `json:"dataset"`
 }
 
-type MutationDBInfo struct {
-	Metadata *MutationDBMetadata `json:"metadata"`
-	//Datasets []*MutationDBDataSet `json:"datasets"`
-	Samples []*MutationDBSample `json:"samples"`
-}
+// type MutationDBInfo struct {
+// 	//Metadata *MutationDBMetadata `json:"metadata"`
+// 	//Datasets []*MutationDBDataSet `json:"datasets"`
+// 	Id          string `json:"id"`
+// 	Uuid        string `json:"uuid"`
+// 	PublicId    string `json:"publicId"`
+// 	Name        string `json:"name"`
+// 	Assembly    string `json:"assembly"`
+// 	Description string `json:"description"`
+
+// 	Samples []*MutationDBSample `json:"samples"`
+// }
 
 type Mutation struct {
 	Chr     string  `json:"chr"`
@@ -130,15 +139,15 @@ func MutationDBKey(assembly string, name string) string {
 	return fmt.Sprintf("%s:%s", assembly, name)
 }
 
-func NewMutationDBMetaData(assembly string, name string) *MutationDBMetadata {
+// func NewMutationDBMetaData(assembly string, name string) *MutationDBMetadata {
 
-	return &MutationDBMetadata{
-		Id:          MutationDBKey(assembly, name),
-		Assembly:    assembly,
-		Name:        name,
-		Description: "",
-	}
-}
+// 	return &MutationDBMetadata{
+// 		Id:          MutationDBKey(assembly, name),
+// 		Assembly:    assembly,
+// 		Name:        name,
+// 		Description: "",
+// 	}
+// }
 
 func NewMutationDBCache(dir string) *MutationDBCache {
 
@@ -179,9 +188,9 @@ func NewMutationDBCache(dir string) *MutationDBCache {
 					log.Fatal().Msgf("%s", err)
 				}
 
-				log.Debug().Msgf("Caching %s", db.Info.Metadata.Id)
+				log.Debug().Msgf("Caching %s", db.Id)
 
-				cacheMap[db.Info.Metadata.Id] = db
+				cacheMap[db.Id] = db
 			}
 		}
 	}
@@ -195,9 +204,9 @@ func (cache *MutationDBCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *MutationDBCache) List() []*MutationDBInfo {
+func (cache *MutationDBCache) List() []*MutationDB {
 
-	ret := make([]*MutationDBInfo, 0, len(cache.cacheMap))
+	ret := make([]*MutationDB, 0, len(cache.cacheMap))
 
 	ids := make([]string, 0, len(cache.cacheMap))
 
@@ -208,7 +217,7 @@ func (cache *MutationDBCache) List() []*MutationDBInfo {
 	sort.Strings(ids)
 
 	for _, id := range ids {
-		ret = append(ret, cache.cacheMap[id].Info)
+		ret = append(ret, cache.cacheMap[id])
 	}
 
 	return ret
@@ -224,9 +233,9 @@ func (cache *MutationDBCache) MutationDBFromId(id string) (*MutationDB, error) {
 	return db, nil
 }
 
-func (cache *MutationDBCache) MutationDBFromMetadata(metadata *MutationDBMetadata) (*MutationDB, error) {
-	return cache.MutationDB(metadata.Assembly, metadata.Name)
-}
+// func (cache *MutationDBCache) MutationDBFromMetadata(metadata *MutationDBMetadata) (*MutationDB, error) {
+// 	return cache.MutationDB(metadata.Assembly, metadata.Name)
+// }
 
 func (cache *MutationDBCache) MutationDB(assembly string, name string) (*MutationDB, error) {
 	return cache.MutationDBFromId(MutationDBKey(assembly, name))
@@ -239,9 +248,16 @@ func (cache *MutationDBCache) Close() {
 }
 
 type MutationDB struct {
-	Info *MutationDBInfo `json:"info"`
+	File        string `json:"-"`
+	Id          string `json:"id"`
+	Uuid        string `json:"uuid"`
+	PublicId    string `json:"publicId"`
+	Name        string `json:"name"`
+	Assembly    string `json:"assembly"`
+	Description string `json:"description"`
 
-	File string
+	Samples []*MutationDBSample `json:"samples"`
+
 	//db                *sql.DB
 	//findMutationsStmt *sql.Stmt
 }
@@ -256,15 +272,18 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 
 	defer db.Close()
 
-	metadata := &MutationDBMetadata{}
+	mutationDB := &MutationDB{
+		File: file,
+		//findMutationsStmt: sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
+	}
 
-	err = db.QueryRow(META_SQL).Scan(&metadata.PublicId, &metadata.Name, &metadata.Description, &metadata.Assembly)
+	err = db.QueryRow(META_SQL).Scan(&mutationDB.Uuid, &mutationDB.PublicId, &mutationDB.Name, &mutationDB.Description, &mutationDB.Assembly)
 
 	if err != nil {
 		log.Fatal().Msgf("%s", err)
 	}
 
-	metadata.Id = MutationDBKey(metadata.Assembly, metadata.PublicId)
+	mutationDB.Id = MutationDBKey(mutationDB.Assembly, mutationDB.PublicId)
 
 	// datasetRows, err := db.Query(DATASETS_SQL)
 
@@ -303,6 +322,7 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 		var sample MutationDBSample
 
 		err := sampleRows.Scan(
+			&sample.Uuid,
 			&sample.Name,
 			&sample.COO,
 			&sample.Lymphgen,
@@ -318,18 +338,15 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 		samples = append(samples, &sample)
 	}
 
-	info := &MutationDBInfo{
-		Metadata: metadata,
-		//Datasets: datasets,
-		Samples: samples,
-	}
+	mutationDB.Samples = samples
 
-	return &MutationDB{
-		Info: info,
-		//db:                db,
-		File: file,
-		//findMutationsStmt: sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
-	}, nil
+	// info := &MutationDBInfo{
+	// 	Metadata: metadata,
+	// 	//Datasets: datasets,
+	// 	Samples: samples,
+	// }
+
+	return mutationDB, nil
 }
 
 // func (mutationsdb *MutationsDB) AllMutationSets() (*[]MutationSet, error) {
