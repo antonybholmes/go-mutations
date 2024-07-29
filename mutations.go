@@ -73,11 +73,12 @@ type MutationDBMetadata struct {
 	Samples     uint   `json:"samples"`
 }
 
-type MutationDBDataSet struct {
-	Name string `json:"name"`
-}
+// type MutationDBDataSet struct {
+// 	Name string `json:"name"`
+// }
 
 type MutationDBSample struct {
+	Uuid            string `json:"uuid"`
 	Name            string `json:"name"`
 	COO             string `json:"coo"`
 	Lymphgen        string `json:"lymphgen"`
@@ -88,9 +89,9 @@ type MutationDBSample struct {
 }
 
 type MutationDBInfo struct {
-	Metadata *MutationDBMetadata  `json:"metadata"`
-	Datasets []*MutationDBDataSet `json:"datasets"`
-	Samples  []*MutationDBSample  `json:"samples"`
+	Metadata *MutationDBMetadata `json:"metadata"`
+	//Datasets []*MutationDBDataSet `json:"datasets"`
+	Samples []*MutationDBSample `json:"samples"`
 }
 
 type Mutation struct {
@@ -265,28 +266,28 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 
 	metadata.Id = MutationDBKey(metadata.Assembly, metadata.PublicId)
 
-	datasetRows, err := db.Query(DATASETS_SQL)
+	// datasetRows, err := db.Query(DATASETS_SQL)
 
-	if err != nil {
-		log.Fatal().Msgf("%s", err)
-	}
+	// if err != nil {
+	// 	log.Fatal().Msgf("%s", err)
+	// }
 
-	defer datasetRows.Close()
+	// defer datasetRows.Close()
 
-	datasets := []*MutationDBDataSet{}
+	// datasets := []*MutationDBDataSet{}
 
-	for datasetRows.Next() {
-		var dataset MutationDBDataSet
+	// for datasetRows.Next() {
+	// 	var dataset MutationDBDataSet
 
-		err := datasetRows.Scan(
-			&dataset.Name)
+	// 	err := datasetRows.Scan(
+	// 		&dataset.Name)
 
-		if err != nil {
-			log.Fatal().Msgf("%s", err)
-		}
+	// 	if err != nil {
+	// 		log.Fatal().Msgf("%s", err)
+	// 	}
 
-		datasets = append(datasets, &dataset)
-	}
+	// 	datasets = append(datasets, &dataset)
+	// }
 
 	sampleRows, err := db.Query(SAMPLES_SQL)
 
@@ -319,8 +320,8 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 
 	info := &MutationDBInfo{
 		Metadata: metadata,
-		Datasets: datasets,
-		Samples:  samples,
+		//Datasets: datasets,
+		Samples: samples,
 	}
 
 	return &MutationDB{
