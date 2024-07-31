@@ -1,6 +1,6 @@
 module github.com/antonybholmes/go-mutations
 
-go 1.22.2
+ 
 
 replace github.com/antonybholmes/go-dna => ../go-dna
 
@@ -12,7 +12,7 @@ require (
 )
 
 require (
-	github.com/antonybholmes/go-math v0.0.0-20240215163921-12bb7e52185c // indirect
+	 
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	golang.org/x/sys v0.22.0 // indirect
