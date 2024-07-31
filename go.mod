@@ -7,7 +7,7 @@ replace github.com/antonybholmes/go-dna => ../go-dna
 replace github.com/antonybholmes/go-sys => ../go-sys
 
 require (
-	github.com/antonybholmes/go-dna v0.0.0-20240605222456-64515d092f41
+	github.com/antonybholmes/go-dna v0.0.0-20240726180729-b94c3b7b50fa
 	github.com/rs/zerolog v1.33.0
 )
 
