@@ -4,15 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/antonybholmes/go-dna"
 	"github.com/rs/zerolog/log"
 )
 
-const META_SQL = "SELECT uuid, public_id, name, description, assembly FROM metadata"
+const INFO_SQL = "SELECT uuid, public_id, name, description, assembly FROM info"
 
 // const DATASETS_SQL = `SELECT
 // 	name
@@ -26,8 +26,7 @@ const SAMPLES_SQL = `SELECT
 	lymphgen, 
 	paired_normal_dna, 
 	institution, 
-	sample_type,
-	dataset
+	sample_type
 	FROM samples 
 	ORDER BY samples.name`
 
@@ -41,11 +40,10 @@ const FIND_MUTATIONS_SQL = `SELECT
 	t_depth, 
 	variant_type,
 	vaf,
-	sample, 
-	dataset
+	sample
 	FROM mutations 
 	WHERE chr = ?1 AND start >= ?2 AND end <= ?3 
-	ORDER BY chr, start, end, variant_type, dataset`
+	ORDER BY chr, start, end, sample, variant_type`
 
 type ExpressionDataIndex struct {
 	ProbeIds    []string
@@ -79,7 +77,7 @@ type MutationsReq struct {
 // 	Name string `json:"name"`
 // }
 
-type MutationDBSample struct {
+type Sample struct {
 	Uuid            string `json:"uuid"`
 	Name            string `json:"name"`
 	COO             string `json:"coo"`
@@ -87,7 +85,7 @@ type MutationDBSample struct {
 	PairedNormalDna bool   `json:"pairedNormalDna"`
 	Institution     string `json:"institution"`
 	SampleType      string `json:"sampleType"`
-	Dataset         string `json:"dataset"`
+	//Dataset         string `json:"dataset"`
 }
 
 // type MutationDBInfo struct {
@@ -104,23 +102,44 @@ type MutationDBSample struct {
 // }
 
 type Mutation struct {
-	Chr     string  `json:"chr"`
-	Start   uint    `json:"start"`
-	End     uint    `json:"end"`
-	Ref     string  `json:"ref"`
-	Tum     string  `json:"tum"`
-	Alt     int     `json:"alt,omitempty"`
-	Depth   int     `json:"depth,omitempty"`
-	Type    string  `json:"type,omitempty"`
-	Vaf     float32 `json:"vaf,omitempty"`
-	Sample  string  `json:"sample"`
-	Dataset string  `json:"dataset"`
+	Chr    string  `json:"chr"`
+	Start  uint    `json:"start"`
+	End    uint    `json:"end"`
+	Ref    string  `json:"ref"`
+	Tum    string  `json:"tum"`
+	Alt    int     `json:"tAltCount"`
+	Depth  int     `json:"tDepth"`
+	Type   string  `json:"type"`
+	Vaf    float32 `json:"vaf"`
+	Sample string  `json:"sample"`
+	//Dataset string `json:"dataset"`
 }
 
-type MutationResults struct {
-	Location *dna.Location `json:"location"`
+func (mutation *Mutation) Clone() *Mutation {
+	var ret Mutation = Mutation{Chr: mutation.Chr,
+		Start:  mutation.Start,
+		End:    mutation.End,
+		Ref:    mutation.Ref,
+		Tum:    mutation.Tum,
+		Alt:    mutation.Alt,
+		Depth:  mutation.Depth,
+		Type:   mutation.Type,
+		Vaf:    mutation.Vaf,
+		Sample: mutation.Sample}
+
+	return &ret
+}
+
+type DatasetResults struct {
+	Info *Info `json:"info"`
 
 	Mutations []*Mutation `json:"mutations"`
+}
+
+type SearchResults struct {
+	Location *dna.Location `json:"location"`
+
+	DatasetResults []*DatasetResults `json:"results"`
 }
 
 type Pileup struct {
@@ -130,14 +149,9 @@ type Pileup struct {
 	Mutations [][]*Mutation `json:"mutations"`
 }
 
-type MutationDBCache struct {
-	dir      string
-	cacheMap map[string]*MutationDB
-}
-
-func MutationDBKey(assembly string, name string) string {
-	return fmt.Sprintf("%s:%s", assembly, name)
-}
+// func MutationDBKey(assembly string, name string) string {
+// 	return fmt.Sprintf("%s:%s", assembly, name)
+// }
 
 // func NewMutationDBMetaData(assembly string, name string) *MutationDBMetadata {
 
@@ -149,121 +163,26 @@ func MutationDBKey(assembly string, name string) string {
 // 	}
 // }
 
-func NewMutationDBCache(dir string) *MutationDBCache {
-
-	cacheMap := make(map[string]*MutationDB)
-
-	assemblyFiles, err := os.ReadDir(dir)
-
-	log.Debug().Msgf("---- mutations ----")
-
-	if err != nil {
-		log.Fatal().Msgf("error opening %s", dir)
-	}
-
-	for _, assemblyFile := range assemblyFiles {
-		if assemblyFile.IsDir() {
-
-			dbFiles, err := os.ReadDir(filepath.Join(dir, assemblyFile.Name()))
-
-			if err != nil {
-				log.Fatal().Msgf("%s", err)
-
-			}
-
-			// init the cache
-			//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
-
-			for _, dbFile := range dbFiles {
-
-				log.Debug().Msgf("Loading mutations from %s...", dbFile.Name())
-
-				//metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
-
-				path := filepath.Join(dir, assemblyFile.Name(), dbFile.Name())
-
-				db, err := NewMutationDB(path)
-
-				if err != nil {
-					log.Fatal().Msgf("%s", err)
-				}
-
-				log.Debug().Msgf("Caching %s", db.Id)
-
-				cacheMap[db.Id] = db
-			}
-		}
-	}
-
-	log.Debug().Msgf("---- end ----")
-
-	return &MutationDBCache{dir, cacheMap}
-}
-
-func (cache *MutationDBCache) Dir() string {
-	return cache.dir
-}
-
-func (cache *MutationDBCache) List() []*MutationDB {
-
-	ret := make([]*MutationDB, 0, len(cache.cacheMap))
-
-	ids := make([]string, 0, len(cache.cacheMap))
-
-	for id := range cache.cacheMap {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
-
-	for _, id := range ids {
-		ret = append(ret, cache.cacheMap[id])
-	}
-
-	return ret
-}
-
-func (cache *MutationDBCache) MutationDBFromId(id string) (*MutationDB, error) {
-	db, ok := cache.cacheMap[id]
-
-	if !ok {
-		return nil, fmt.Errorf("mutations: %s is not a valid assembly", id)
-	}
-
-	return db, nil
-}
-
-// func (cache *MutationDBCache) MutationDBFromMetadata(metadata *MutationDBMetadata) (*MutationDB, error) {
-// 	return cache.MutationDB(metadata.Assembly, metadata.Name)
-// }
-
-func (cache *MutationDBCache) MutationDB(assembly string, name string) (*MutationDB, error) {
-	return cache.MutationDBFromId(MutationDBKey(assembly, name))
-}
-
-func (cache *MutationDBCache) Close() {
-	// for _, db := range cache.cacheMap {
-	// 	db.Close()
-	// }
-}
-
-type MutationDB struct {
-	File        string `json:"-"`
-	Id          string `json:"id"`
+type Info struct {
 	Uuid        string `json:"uuid"`
 	PublicId    string `json:"publicId"`
 	Name        string `json:"name"`
 	Assembly    string `json:"assembly"`
 	Description string `json:"description"`
+}
 
-	Samples []*MutationDBSample `json:"samples"`
+type Dataset struct {
+	File string `json:"-"`
+	Info *Info  `json:"info"`
+
+	Samples []*Sample `json:"samples"`
 
 	//db                *sql.DB
 	//findMutationsStmt *sql.Stmt
 }
 
-func NewMutationDB(dir string) (*MutationDB, error) {
-	file := path.Join(dir, "mutations.db")
+func NewDataset(file string) (*Dataset, error) {
+	//file := path.Join(dir, "mutations.db")
 	db, err := sql.Open("sqlite3", file)
 
 	if err != nil {
@@ -272,18 +191,25 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 
 	defer db.Close()
 
-	mutationDB := &MutationDB{
-		File: file,
-		//findMutationsStmt: sys.Must(db.Prepare(FIND_MUTATIONS_SQL)),
-	}
+	var info Info
 
-	err = db.QueryRow(META_SQL).Scan(&mutationDB.Uuid, &mutationDB.PublicId, &mutationDB.Name, &mutationDB.Description, &mutationDB.Assembly)
+	err = db.QueryRow(INFO_SQL).Scan(&info.Uuid,
+		&info.PublicId,
+		&info.Name,
+		&info.Description,
+		&info.Assembly)
 
 	if err != nil {
-		log.Fatal().Msgf("%s", err)
+		log.Fatal().Msgf("info %s", err)
 	}
 
-	mutationDB.Id = MutationDBKey(mutationDB.Assembly, mutationDB.PublicId)
+	dataset := &Dataset{
+		File:    file,
+		Info:    &info,
+		Samples: make([]*Sample, 0, 100),
+	}
+
+	//mutationDB.Id = MutationDBKey(mutationDB.Assembly, mutationDB.PublicId)
 
 	// datasetRows, err := db.Query(DATASETS_SQL)
 
@@ -316,10 +242,8 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 
 	defer sampleRows.Close()
 
-	samples := []*MutationDBSample{}
-
 	for sampleRows.Next() {
-		var sample MutationDBSample
+		var sample Sample
 
 		err := sampleRows.Scan(
 			&sample.Uuid,
@@ -328,17 +252,14 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 			&sample.Lymphgen,
 			&sample.PairedNormalDna,
 			&sample.Institution,
-			&sample.SampleType,
-			&sample.Dataset)
+			&sample.SampleType)
 
 		if err != nil {
 			log.Fatal().Msgf("%s", err)
 		}
 
-		samples = append(samples, &sample)
+		dataset.Samples = append(dataset.Samples, &sample)
 	}
-
-	mutationDB.Samples = samples
 
 	// info := &MutationDBInfo{
 	// 	Metadata: metadata,
@@ -346,7 +267,7 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 	// 	Samples: samples,
 	// }
 
-	return mutationDB, nil
+	return dataset, nil
 }
 
 // func (mutationsdb *MutationsDB) AllMutationSets() (*[]MutationSet, error) {
@@ -375,7 +296,7 @@ func NewMutationDB(dir string) (*MutationDB, error) {
 // 	return &mutationSets, nil
 // }
 
-func (mutdb *MutationDB) FindMutations(location *dna.Location) (*MutationResults, error) {
+func (mutdb *Dataset) Search(location *dna.Location) (*DatasetResults, error) {
 
 	db, err := sql.Open("sqlite3", mutdb.File) //not clear on what is needed for the user and password
 
@@ -391,45 +312,31 @@ func (mutdb *MutationDB) FindMutations(location *dna.Location) (*MutationResults
 		return nil, err
 	}
 
-	return rowsToMutations(location, rows)
+	mutations, err := rowsToMutations(location, rows)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &DatasetResults{Info: mutdb.Info, Mutations: mutations}, nil
 }
 
-func (mutdb *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
-
-	db, err := sql.Open("sqlite3", mutdb.File) //not clear on what is needed for the user and password
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer db.Close()
-
-	rows, err := db.Query(FIND_MUTATIONS_SQL, location.Chr, location.Start, location.End)
-
-	if err != nil {
-		return nil, err
-	}
-
-	results, err := rowsToMutations(location, rows)
-
-	if err != nil {
-		return nil, err
-	}
-
+func GetPileup(search *SearchResults) (*Pileup, error) {
 	// first lets fix deletions and insertions
-
-	for _, mutation := range results.Mutations {
-		// change for sorting purposes so that ins always comes last
-		switch mutation.Type {
-		case "INS":
-			mutation.Type = "2:INS"
-			// modify the output so that is begins with a caret to indicate
-			// an insertion
-			mutation.Tum = fmt.Sprintf("^%s", mutation.Tum)
-		case "DEL":
-			mutation.Type = "3:DEL"
-		default:
-			mutation.Type = "1:SNP"
+	for _, datasetResults := range search.DatasetResults {
+		for _, mutation := range datasetResults.Mutations {
+			// change for sorting purposes so that ins always comes last
+			switch mutation.Type {
+			case "INS":
+				mutation.Type = "2:INS"
+				// modify the output so that is begins with a caret to indicate
+				// an insertion
+				mutation.Tum = fmt.Sprintf("^%s", mutation.Tum)
+			case "DEL":
+				mutation.Type = "3:DEL"
+			default:
+				mutation.Type = "1:SNP"
+			}
 		}
 	}
 
@@ -437,26 +344,30 @@ func (mutdb *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 
 	pileupMap := make(map[uint]map[string]map[string][]*Mutation)
 
-	for _, mutation := range results.Mutations {
+	for _, datasetResults := range search.DatasetResults {
+		for _, mutation := range datasetResults.Mutations {
 
-		switch mutation.Type {
-		case "3:DEL":
-			for i := range mutation.End - mutation.Start + 1 {
-				addToPileupMap(&pileupMap, mutation.Start+i, mutation)
-			}
-		case "2:INS":
-			addToPileupMap(&pileupMap, mutation.Start, mutation)
-		default:
-			// deal with concatenated snps
-			tum := []rune(mutation.Tum)
-			for i := range len(tum) {
-				// clone and change tumor
-				mut := *mutation
-				mut.Tum = string(tum[i])
-				addToPileupMap(&pileupMap, mutation.Start+uint(i), &mut)
+			switch mutation.Type {
+			case "3:DEL":
+				for i := range mutation.End - mutation.Start + 1 {
+					addToPileupMap(&pileupMap, mutation.Start+i, mutation)
+				}
+			case "2:INS":
+				addToPileupMap(&pileupMap, mutation.Start, mutation)
+			default:
+				// deal with concatenated snps
+				//tum := []rune(mutation.Tum)
+				for i, c := range mutation.Tum {
+					// clone and change tumor
+					mut := mutation.Clone()
+					mut.Tum = string(c)
+					addToPileupMap(&pileupMap, mutation.Start+uint(i), mut)
+				}
 			}
 		}
 	}
+
+	location := search.Location
 
 	// init pileup
 	pileup := make([][]*Mutation, location.Len())
@@ -465,6 +376,7 @@ func (mutdb *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		pileup[i] = []*Mutation{}
 	}
 
+	// get sorted start positions
 	starts := make([]uint, 0, len(pileupMap))
 
 	for start := range pileupMap {
@@ -473,7 +385,9 @@ func (mutdb *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 
 	sort.Slice(starts, func(i, j int) bool { return starts[i] < starts[j] })
 
+	// assemble pileups on each start location
 	for _, start := range starts {
+		// sort variant types
 		variantTypes := make([]string, 0, len(pileupMap[start]))
 
 		for variantType := range pileupMap[start] {
@@ -483,6 +397,7 @@ func (mutdb *MutationDB) Pileup(location *dna.Location) (*Pileup, error) {
 		sort.Strings(variantTypes)
 
 		for _, variantType := range variantTypes {
+			// sort variant change
 			tumors := make([]string, 0, len(pileupMap[start][variantType]))
 
 			for tumor := range pileupMap[start][variantType] {
@@ -525,157 +440,15 @@ func addToPileupMap(pileupMap *map[uint]map[string]map[string][]*Mutation, start
 	_, ok = (*pileupMap)[start][mutation.Type][mutation.Tum]
 
 	if !ok {
-		(*pileupMap)[start][mutation.Type][mutation.Tum] = make([]*Mutation, 0, 10)
+		(*pileupMap)[start][mutation.Type][mutation.Tum] = make([]*Mutation, 0, 100)
 	}
 
 	(*pileupMap)[start][mutation.Type][mutation.Tum] = append((*pileupMap)[start][mutation.Type][mutation.Tum], mutation)
 }
 
-// func (mutationsdb *MutationsDB) Expression(samples *MutationsReq) (*ExpressionData, error) {
-// 	// let sample_ids = vec![
-// 	//     "0c3b8a19-1975-4c6e-aece-44a59c71719d",
-// 	//     "0c4f0c89-af16-484a-a408-8dfde25d8f10",
-// 	// ];
+func rowsToMutations(location *dna.Location, rows *sql.Rows) ([]*Mutation, error) {
 
-// 	nSamples := len(samples.Samples)
-
-// 	//eprintln!("{:?}", Path::new(&self.path).join("meta.tsv").to_str());
-// 	// open meta data
-// 	file, err := os.Open(path.Join(mutationsdb.Path, samples.Platform, "meta.tsv"))
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	reader := csv.NewReader(file)
-// 	reader.Comma = '\t'
-
-// 	columnValues, err := reader.Read()
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	probeIds := columnValues[1:]
-
-// 	nProbes := len(probeIds)
-
-// 	columnValues, err = reader.Read()
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	entrezIds := columnValues[1:]
-
-// 	columnValues, err = reader.Read()
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	geneSymbols := columnValues[1:]
-
-// 	rowRecords := make([][]float64, nSamples)
-// 	sampleNames := make([]string, nSamples)
-
-// 	// let mut rdr = csv::ReaderBuilder::new()
-// 	//     .has_headers(true)
-// 	//     .delimiter(b'\t')
-// 	//     .from_reader(file);
-
-// 	for _, sample := range samples.Samples {
-// 		file, err := os.Open(path.Join(mutationsdb.Path, fmt.Sprintf("%s.tsv", sample)))
-
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		reader := csv.NewReader(file)
-// 		reader.Comma = '\t'
-
-// 		columnValues, err := reader.Read()
-
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		sampleNames = append(sampleNames, columnValues[0])
-
-// 		for {
-// 			columnValues, err := reader.Read()
-
-// 			if err == io.EOF {
-// 				break
-// 			}
-
-// 			if err != nil {
-// 				return nil, err
-// 			}
-
-// 			rowRecords = append(rowRecords, sys.Map(columnValues[1:], func(s string) float64 {
-// 				v, err := strconv.ParseFloat(s, 64)
-
-// 				if err != nil {
-// 					return 0
-// 				}
-
-// 				return v
-// 			}))
-// 		}
-// 	}
-
-// 	data := ExpressionData{
-// 		Exp:    make([][]float64, nProbes),
-// 		Header: sampleNames,
-// 		Index: ExpressionDataIndex{
-// 			ProbeIds:    probeIds,
-// 			EntrezIds:   entrezIds,
-// 			GeneSymbols: geneSymbols,
-// 		},
-// 	}
-
-// 	// We are going to transpose the data we read into this output
-// 	// array
-// 	//let mut data:Vec<Vec<f64>> = vec![vec![0.0; n_samples]; n_probes] ;
-
-// 	for row := range nProbes {
-// 		data.Exp[row] = make([]float64, nSamples)
-
-// 		for col := range nSamples {
-// 			data.Exp[row][col] = rowRecords[col][row]
-// 		}
-
-// 		//eprintln!("{:?} {} out_row", out_row, n_samples);
-
-// 		// wtr.write_record(&out_row)?;
-// 	}
-
-// 	// for result in rdr.records() {
-// 	//     //for row in data {
-// 	//     let record =
-// 	//         result.map_err(|_| MicroarrayError::FileError("header issue".to_string()))?;
-
-// 	//     let row = cols.iter().map(|c| &record[**c]).collect::<Vec<&str>>();
-// 	//     //println!("{}", &record[0]);
-// 	//     wtr.write_record(&row)
-// 	//         .map_err(|_| MicroarrayError::FileError("header issue".to_string()))?;
-// 	// }
-
-// 	//let vec: Vec<u8> = wtr.into_inner()?;
-
-// 	//let data = String::from_utf8(vec)?;
-
-// 	return &data, nil
-// }
-
-// func (mutationsdb *MutationDB) Close() {
-// 	mutationsdb.db.Close()
-// }
-
-func rowsToMutations(location *dna.Location, rows *sql.Rows) (*MutationResults, error) {
-
-	mutations := []*Mutation{}
+	mutations := make([]*Mutation, 0, 100)
 
 	defer rows.Close()
 
@@ -692,8 +465,7 @@ func rowsToMutations(location *dna.Location, rows *sql.Rows) (*MutationResults, 
 			&mutation.Depth,
 			&mutation.Type,
 			&mutation.Vaf,
-			&mutation.Sample,
-			&mutation.Dataset)
+			&mutation.Sample)
 
 		if err != nil {
 			fmt.Println(err)
@@ -702,5 +474,108 @@ func rowsToMutations(location *dna.Location, rows *sql.Rows) (*MutationResults, 
 		mutations = append(mutations, &mutation)
 	}
 
-	return &MutationResults{location, mutations}, nil
+	return mutations, nil
+}
+
+type DatasetCache struct {
+	dir      string
+	cacheMap map[string]*Dataset
+}
+
+func NewMutationDBCache(dir string) *DatasetCache {
+
+	cacheMap := make(map[string]*Dataset)
+
+	log.Debug().Msgf("---- mutations ----")
+
+	dbFiles, err := os.ReadDir(dir)
+
+	if err != nil {
+		log.Fatal().Msgf("%s", err)
+
+	}
+
+	// init the cache
+	//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
+
+	for _, dbFile := range dbFiles {
+		if !strings.HasSuffix(dbFile.Name(), ".db") {
+			continue
+		}
+
+		log.Debug().Msgf("Loading mutations from %s...", dbFile.Name())
+
+		//metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
+
+		path := filepath.Join(dir, dbFile.Name())
+
+		db, err := NewDataset(path)
+
+		if err != nil {
+			log.Fatal().Msgf("%s", err)
+		}
+
+		log.Debug().Msgf("Caching %s", db.Info.PublicId)
+
+		cacheMap[db.Info.Uuid] = db
+	}
+
+	log.Debug().Msgf("---- end ----")
+
+	return &DatasetCache{dir, cacheMap}
+}
+
+func (cache *DatasetCache) Dir() string {
+	return cache.dir
+}
+
+func (cache *DatasetCache) List() []*Dataset {
+
+	ret := make([]*Dataset, 0, len(cache.cacheMap))
+
+	ids := make([]string, 0, len(cache.cacheMap))
+
+	for id := range cache.cacheMap {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		ret = append(ret, cache.cacheMap[id])
+	}
+
+	return ret
+}
+
+func (cache *DatasetCache) GetDataset(uuid string) (*Dataset, error) {
+	dataset, ok := cache.cacheMap[uuid]
+
+	if !ok {
+		return nil, fmt.Errorf("dataset not found")
+	}
+
+	return dataset, nil
+}
+
+func (cache *DatasetCache) Search(location *dna.Location, uuids []string) (*SearchResults, error) {
+	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(uuids))}
+
+	for _, uuid := range uuids {
+		dataset, err := cache.GetDataset(uuid)
+
+		if err != nil {
+			return nil, err
+		}
+
+		datasetResults, err := dataset.Search(location)
+
+		if err != nil {
+			return nil, err
+		}
+
+		results.DatasetResults = append(results.DatasetResults, datasetResults)
+	}
+
+	return &results, nil
 }

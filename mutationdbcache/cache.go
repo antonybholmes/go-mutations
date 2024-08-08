@@ -3,13 +3,14 @@ package mutationdbcache
 import (
 	"sync"
 
+	"github.com/antonybholmes/go-dna"
 	"github.com/antonybholmes/go-mutations"
 )
 
-var instance *mutations.MutationDBCache
+var instance *mutations.DatasetCache
 var once sync.Once
 
-func InitCache(dir string) (*mutations.MutationDBCache, error) {
+func InitCache(dir string) (*mutations.DatasetCache, error) {
 	once.Do(func() {
 		instance = mutations.NewMutationDBCache(dir)
 	})
@@ -17,7 +18,7 @@ func InitCache(dir string) (*mutations.MutationDBCache, error) {
 	return instance, nil
 }
 
-func GetInstance() *mutations.MutationDBCache {
+func GetInstance() *mutations.DatasetCache {
 	return instance
 }
 
@@ -25,10 +26,10 @@ func Dir() string {
 	return instance.Dir()
 }
 
-func MutationDB(assembly string, name string) (*mutations.MutationDB, error) {
-	return instance.MutationDB(assembly, name)
+func GetDataset(uuid string) (*mutations.Dataset, error) {
+	return instance.GetDataset(uuid)
 }
 
-func MutationDBFromId(id string) (*mutations.MutationDB, error) {
-	return instance.MutationDBFromId(id)
+func Search(location *dna.Location, uuids []string) (*mutations.SearchResults, error) {
+	return instance.Search(location, uuids)
 }
