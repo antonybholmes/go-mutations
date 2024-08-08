@@ -26,7 +26,7 @@ func Dir() string {
 	return instance.Dir()
 }
 
-func GetDataset(uuid string) (*mutations.Dataset, error) {
+func GetDataset(uuid string) (*mutations.DatasetDB, error) {
 	return instance.GetDataset(uuid)
 }
 

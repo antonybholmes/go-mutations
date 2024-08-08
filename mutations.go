@@ -102,17 +102,17 @@ type Sample struct {
 // }
 
 type Mutation struct {
-	Chr    string  `json:"chr"`
-	Start  uint    `json:"start"`
-	End    uint    `json:"end"`
-	Ref    string  `json:"ref"`
-	Tum    string  `json:"tum"`
-	Alt    int     `json:"tAltCount"`
-	Depth  int     `json:"tDepth"`
-	Type   string  `json:"type"`
-	Vaf    float32 `json:"vaf"`
-	Sample string  `json:"sample"`
-	//Dataset string `json:"dataset"`
+	Chr     string  `json:"chr"`
+	Start   uint    `json:"start"`
+	End     uint    `json:"end"`
+	Ref     string  `json:"ref"`
+	Tum     string  `json:"tum"`
+	Alt     int     `json:"tAltCount"`
+	Depth   int     `json:"tDepth"`
+	Type    string  `json:"type"`
+	Vaf     float32 `json:"vaf"`
+	Sample  string  `json:"sample"`
+	Dataset int     `json:"dataset,omitempty"`
 }
 
 func (mutation *Mutation) Clone() *Mutation {
@@ -138,15 +138,15 @@ type DatasetResults struct {
 
 type SearchResults struct {
 	Location *dna.Location `json:"location"`
-
+	//Info           []*Info           `json:"info"`
 	DatasetResults []*DatasetResults `json:"results"`
 }
 
-type Pileup struct {
+type PileupResults struct {
 	Location *dna.Location `json:"location"`
-
+	Info     []*Info       `json:"info"`
 	//Samples   uint                  `json:"samples"`
-	Mutations [][]*Mutation `json:"mutations"`
+	Pileup [][]*Mutation `json:"pileup"`
 }
 
 // func MutationDBKey(assembly string, name string) string {
@@ -171,17 +171,22 @@ type Info struct {
 	Description string `json:"description"`
 }
 
-type Dataset struct {
-	File string `json:"-"`
-	Info *Info  `json:"info"`
+// type Dataset struct {
+// 	Info    *Info     `json:"info"`
+// 	Samples []*Sample `json:"samples"`
+// }
 
+type DatasetDB struct {
+	File string `json:"-"`
+	//Dataset *Dataset `json:"dataset"`
+	Info    *Info     `json:"info"`
 	Samples []*Sample `json:"samples"`
 
 	//db                *sql.DB
 	//findMutationsStmt *sql.Stmt
 }
 
-func NewDataset(file string) (*Dataset, error) {
+func NewDataset(file string) (*DatasetDB, error) {
 	//file := path.Join(dir, "mutations.db")
 	db, err := sql.Open("sqlite3", file)
 
@@ -203,7 +208,7 @@ func NewDataset(file string) (*Dataset, error) {
 		log.Fatal().Msgf("info %s", err)
 	}
 
-	dataset := &Dataset{
+	dataset := &DatasetDB{
 		File:    file,
 		Info:    &info,
 		Samples: make([]*Sample, 0, 100),
@@ -296,7 +301,7 @@ func NewDataset(file string) (*Dataset, error) {
 // 	return &mutationSets, nil
 // }
 
-func (mutdb *Dataset) Search(location *dna.Location) (*DatasetResults, error) {
+func (mutdb *DatasetDB) Search(location *dna.Location) (*DatasetResults, error) {
 
 	db, err := sql.Open("sqlite3", mutdb.File) //not clear on what is needed for the user and password
 
@@ -312,7 +317,7 @@ func (mutdb *Dataset) Search(location *dna.Location) (*DatasetResults, error) {
 		return nil, err
 	}
 
-	mutations, err := rowsToMutations(location, rows)
+	mutations, err := rowsToMutations(rows)
 
 	if err != nil {
 		return nil, err
@@ -321,7 +326,7 @@ func (mutdb *Dataset) Search(location *dna.Location) (*DatasetResults, error) {
 	return &DatasetResults{Info: mutdb.Info, Mutations: mutations}, nil
 }
 
-func GetPileup(search *SearchResults) (*Pileup, error) {
+func GetPileup(search *SearchResults) (*PileupResults, error) {
 	// first lets fix deletions and insertions
 	for _, datasetResults := range search.DatasetResults {
 		for _, mutation := range datasetResults.Mutations {
@@ -344,24 +349,26 @@ func GetPileup(search *SearchResults) (*Pileup, error) {
 
 	pileupMap := make(map[uint]map[string]map[string][]*Mutation)
 
-	for _, datasetResults := range search.DatasetResults {
+	for di, datasetResults := range search.DatasetResults {
 		for _, mutation := range datasetResults.Mutations {
+			mut := mutation.Clone()
+			mut.Dataset = di
 
-			switch mutation.Type {
+			switch mut.Type {
 			case "3:DEL":
-				for i := range mutation.End - mutation.Start + 1 {
-					addToPileupMap(&pileupMap, mutation.Start+i, mutation)
+				for i := range mut.End - mut.Start + 1 {
+					addToPileupMap(&pileupMap, mut.Start+i, mut)
 				}
 			case "2:INS":
-				addToPileupMap(&pileupMap, mutation.Start, mutation)
+				addToPileupMap(&pileupMap, mut.Start, mut)
 			default:
 				// deal with concatenated snps
 				//tum := []rune(mutation.Tum)
-				for i, c := range mutation.Tum {
+				for i, c := range mut.Tum {
 					// clone and change tumor
-					mut := mutation.Clone()
-					mut.Tum = string(c)
-					addToPileupMap(&pileupMap, mutation.Start+uint(i), mut)
+					mut2 := mut.Clone()
+					mut2.Tum = string(c)
+					addToPileupMap(&pileupMap, mut2.Start+uint(i), mut2)
 				}
 			}
 		}
@@ -420,7 +427,14 @@ func GetPileup(search *SearchResults) (*Pileup, error) {
 		}
 	}
 
-	return &Pileup{location, pileup}, nil
+	// extract the info on which dataframe we are using
+	info := make([]*Info, len(search.DatasetResults))
+
+	for _, results := range search.DatasetResults {
+		info = append(info, results.Info)
+	}
+
+	return &PileupResults{Location: location, Info: info, Pileup: pileup}, nil
 }
 
 func addToPileupMap(pileupMap *map[uint]map[string]map[string][]*Mutation, start uint, mutation *Mutation) {
@@ -446,7 +460,7 @@ func addToPileupMap(pileupMap *map[uint]map[string]map[string][]*Mutation, start
 	(*pileupMap)[start][mutation.Type][mutation.Tum] = append((*pileupMap)[start][mutation.Type][mutation.Tum], mutation)
 }
 
-func rowsToMutations(location *dna.Location, rows *sql.Rows) ([]*Mutation, error) {
+func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 
 	mutations := make([]*Mutation, 0, 100)
 
@@ -479,12 +493,12 @@ func rowsToMutations(location *dna.Location, rows *sql.Rows) ([]*Mutation, error
 
 type DatasetCache struct {
 	dir      string
-	cacheMap map[string]*Dataset
+	cacheMap map[string]*DatasetDB
 }
 
 func NewMutationDBCache(dir string) *DatasetCache {
 
-	cacheMap := make(map[string]*Dataset)
+	cacheMap := make(map[string]*DatasetDB)
 
 	log.Debug().Msgf("---- mutations ----")
 
@@ -529,9 +543,9 @@ func (cache *DatasetCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *DatasetCache) List() []*Dataset {
+func (cache *DatasetCache) List() []*DatasetDB {
 
-	ret := make([]*Dataset, 0, len(cache.cacheMap))
+	ret := make([]*DatasetDB, 0, len(cache.cacheMap))
 
 	ids := make([]string, 0, len(cache.cacheMap))
 
@@ -548,7 +562,7 @@ func (cache *DatasetCache) List() []*Dataset {
 	return ret
 }
 
-func (cache *DatasetCache) GetDataset(uuid string) (*Dataset, error) {
+func (cache *DatasetCache) GetDataset(uuid string) (*DatasetDB, error) {
 	dataset, ok := cache.cacheMap[uuid]
 
 	if !ok {
