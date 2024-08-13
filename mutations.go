@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"slices"
 	"sort"
 	"strings"
 
@@ -20,6 +22,7 @@ const INFO_SQL = "SELECT uuid, public_id, name, description, assembly FROM info"
 // 	ORDER BY datasets.name`
 
 const SAMPLES_SQL = `SELECT
+	id,
 	uuid,
 	name, 
 	coo, 
@@ -99,11 +102,12 @@ type Dataset struct {
 }
 
 type Sample struct {
+	Id              int    `json:"id"`
 	Uuid            string `json:"uuid"`
 	Name            string `json:"name"`
 	COO             string `json:"coo"`
 	Lymphgen        string `json:"lymphgen"`
-	PairedNormalDna bool   `json:"pairedNormalDna"`
+	PairedNormalDna int    `json:"pairedNormalDna"`
 	Institution     string `json:"institution"`
 	SampleType      string `json:"sampleType"`
 	Dataset         string `json:"dataset"`
@@ -252,6 +256,7 @@ func NewDataset(file string) (*Dataset, error) {
 		var sample Sample
 
 		err := sampleRows.Scan(
+			&sample.Id,
 			&sample.Uuid,
 			&sample.Name,
 			&sample.COO,
@@ -314,7 +319,10 @@ func (dataset *Dataset) Search(location *dna.Location) (*DatasetResults, error) 
 
 	defer db.Close()
 
-	rows, err := db.Query(FIND_MUTATIONS_SQL, location.Chr, location.Start, location.End)
+	// need to search without chr prefix
+	chr := strings.Replace(location.Chr, "chr", "", 1)
+
+	rows, err := db.Query(FIND_MUTATIONS_SQL, chr, location.Start, location.End)
 
 	if err != nil {
 		return nil, err
@@ -493,50 +501,72 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 		mutations = append(mutations, &mutation)
 	}
 
+	log.Debug().Msgf("all the muts %d", len(mutations))
+
 	return mutations, nil
 }
 
 type DatasetCache struct {
 	dir      string
-	cacheMap map[string]*Dataset
+	cacheMap map[string]map[string]*Dataset
 }
 
 func NewMutationDBCache(dir string) *DatasetCache {
 
-	cacheMap := make(map[string]*Dataset)
+	cacheMap := make(map[string]map[string]*Dataset)
 
 	log.Debug().Msgf("---- mutations ----")
 
-	dbFiles, err := os.ReadDir(dir)
+	assemblyFiles, err := os.ReadDir(dir)
 
 	if err != nil {
 		log.Fatal().Msgf("%s", err)
 
 	}
 
-	// init the cache
-	//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
+	for _, assemblyDir := range assemblyFiles {
 
-	for _, dbFile := range dbFiles {
-		if !strings.HasSuffix(dbFile.Name(), ".db") {
+		if !assemblyDir.IsDir() {
 			continue
 		}
 
-		log.Debug().Msgf("Loading mutations from %s...", dbFile.Name())
-
-		//metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
-
-		path := filepath.Join(dir, dbFile.Name())
-
-		dataset, err := NewDataset(path)
+		dbFiles, err := os.ReadDir(filepath.Join(dir, assemblyDir.Name()))
 
 		if err != nil {
 			log.Fatal().Msgf("%s", err)
+
 		}
 
-		log.Debug().Msgf("Caching %s", dataset.PublicId)
+		// init the cache
+		//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
 
-		cacheMap[dataset.Uuid] = dataset
+		for _, dbFile := range dbFiles {
+			if !strings.HasSuffix(dbFile.Name(), ".db") {
+				continue
+			}
+
+			path := filepath.Join(dir, assemblyDir.Name(), dbFile.Name())
+
+			log.Debug().Msgf("Loading mutations from %s...", path)
+
+			//metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
+
+			dataset, err := NewDataset(path)
+
+			if err != nil {
+				log.Fatal().Msgf("%s", err)
+			}
+
+			log.Debug().Msgf("Caching %s", dataset.PublicId)
+
+			_, ok := cacheMap[dataset.Assembly]
+
+			if !ok {
+				cacheMap[dataset.Assembly] = make(map[string]*Dataset)
+			}
+
+			cacheMap[dataset.Assembly][dataset.Uuid] = dataset
+		}
 	}
 
 	log.Debug().Msgf("---- end ----")
@@ -548,27 +578,45 @@ func (cache *DatasetCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *DatasetCache) List() []*Dataset {
+func (cache *DatasetCache) List(assembly string) ([]*Dataset, error) {
 
-	ret := make([]*Dataset, 0, len(cache.cacheMap))
+	cacheMap, ok := cache.cacheMap[assembly]
 
-	ids := make([]string, 0, len(cache.cacheMap))
+	if !ok {
+		// assembly doesn't exist, so return empty array
+		return []*Dataset{}, nil
+	}
 
-	for id := range cache.cacheMap {
+	ret := make([]*Dataset, 0, len(cacheMap))
+
+	ids := make([]string, 0, len(cacheMap))
+
+	for id := range cacheMap {
 		ids = append(ids, id)
 	}
 
 	sort.Strings(ids)
+	var dataset *Dataset
 
 	for _, id := range ids {
-		ret = append(ret, cache.cacheMap[id])
+		dataset = cacheMap[id]
+
+		if dataset.Assembly == assembly {
+			ret = append(ret, cacheMap[id])
+		}
 	}
 
-	return ret
+	slices.SortFunc(ret,
+		func(a, b *Dataset) int {
+			return strings.Compare(a.Name, b.Name)
+		},
+	)
+
+	return ret, nil
 }
 
-func (cache *DatasetCache) GetDataset(uuid string) (*Dataset, error) {
-	dataset, ok := cache.cacheMap[uuid]
+func (cache *DatasetCache) GetDataset(assembly string, uuid string) (*Dataset, error) {
+	dataset, ok := cache.cacheMap[assembly][uuid]
 
 	if !ok {
 		return nil, fmt.Errorf("dataset not found")
@@ -577,11 +625,11 @@ func (cache *DatasetCache) GetDataset(uuid string) (*Dataset, error) {
 	return dataset, nil
 }
 
-func (cache *DatasetCache) Search(location *dna.Location, uuids []string) (*SearchResults, error) {
+func (cache *DatasetCache) Search(assembly string, location *dna.Location, uuids []string) (*SearchResults, error) {
 	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(uuids))}
 
 	for _, uuid := range uuids {
-		dataset, err := cache.GetDataset(uuid)
+		dataset, err := cache.GetDataset(assembly, uuid)
 
 		if err != nil {
 			return nil, err

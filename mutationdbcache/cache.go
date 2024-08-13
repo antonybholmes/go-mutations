@@ -22,14 +22,18 @@ func GetInstance() *mutations.DatasetCache {
 	return instance
 }
 
+func List(assembly string) ([]*mutations.Dataset, error) {
+	return instance.List(assembly)
+}
+
 func Dir() string {
 	return instance.Dir()
 }
 
-func GetDataset(uuid string) (*mutations.Dataset, error) {
-	return instance.GetDataset(uuid)
+func GetDataset(assembly string, uuid string) (*mutations.Dataset, error) {
+	return instance.GetDataset(assembly, uuid)
 }
 
-func Search(location *dna.Location, uuids []string) (*mutations.SearchResults, error) {
-	return instance.Search(location, uuids)
+func Search(assembly string, location *dna.Location, uuids []string) (*mutations.SearchResults, error) {
+	return instance.Search(assembly, location, uuids)
 }
