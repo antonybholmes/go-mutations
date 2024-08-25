@@ -102,15 +102,15 @@ type Dataset struct {
 }
 
 type Sample struct {
-	Id              int    `json:"id"`
 	Uuid            string `json:"uuid"`
 	Name            string `json:"name"`
 	COO             string `json:"coo"`
 	Lymphgen        string `json:"lymphgen"`
-	PairedNormalDna int    `json:"pairedNormalDna"`
 	Institution     string `json:"institution"`
 	SampleType      string `json:"sampleType"`
 	Dataset         string `json:"dataset"`
+	Id              int    `json:"id"`
+	PairedNormalDna int    `json:"pairedNormalDna"`
 }
 
 // type MutationDBInfo struct {
@@ -128,16 +128,16 @@ type Sample struct {
 
 type Mutation struct {
 	Chr     string  `json:"chr"`
-	Start   uint    `json:"start"`
-	End     uint    `json:"end"`
 	Ref     string  `json:"ref"`
 	Tum     string  `json:"tum"`
-	Alt     int     `json:"tAltCount"`
-	Depth   int     `json:"tDepth"`
 	Type    string  `json:"type"`
-	Vaf     float32 `json:"vaf"`
 	Sample  string  `json:"sample"`
 	Dataset string  `json:"dataset,omitempty"`
+	Start   uint    `json:"start"`
+	End     uint    `json:"end"`
+	Alt     int     `json:"tAltCount"`
+	Depth   int     `json:"tDepth"`
+	Vaf     float32 `json:"vaf"`
 }
 
 func (mutation *Mutation) Clone() *Mutation {
@@ -507,8 +507,8 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 }
 
 type DatasetCache struct {
-	dir      string
 	cacheMap map[string]map[string]*Dataset
+	dir      string
 }
 
 func NewMutationDBCache(dir string) *DatasetCache {
@@ -571,7 +571,7 @@ func NewMutationDBCache(dir string) *DatasetCache {
 
 	log.Debug().Msgf("---- end ----")
 
-	return &DatasetCache{dir, cacheMap}
+	return &DatasetCache{dir: dir, cacheMap: cacheMap}
 }
 
 func (cache *DatasetCache) Dir() string {
