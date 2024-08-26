@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const INFO_SQL = "SELECT uuid, public_id, name, description, assembly FROM info"
+const INFO_SQL = "SELECT public_id, short_name, name, description, assembly FROM info"
 
 // const DATASETS_SQL = `SELECT
 // 	name
@@ -23,7 +23,7 @@ const INFO_SQL = "SELECT uuid, public_id, name, description, assembly FROM info"
 
 const SAMPLES_SQL = `SELECT
 	id,
-	uuid,
+	public_id,
 	name, 
 	coo, 
 	lymphgen, 
@@ -43,7 +43,7 @@ const FIND_MUTATIONS_SQL = `SELECT
 	t_depth, 
 	variant_type,
 	vaf,
-	sample_uuid
+	sample_public_id
 	FROM mutations 
 	WHERE chr = ?1 AND start >= ?2 AND end <= ?3 
 	ORDER BY chr, start, end, variant_type`
@@ -90,8 +90,8 @@ type MutationsReq struct {
 
 type Dataset struct {
 	File        string    `json:"-"`
-	Uuid        string    `json:"uuid"`
 	PublicId    string    `json:"publicId"`
+	ShortName   string    `json:"shortName"`
 	Name        string    `json:"name"`
 	Assembly    string    `json:"assembly"`
 	Description string    `json:"description"`
@@ -102,7 +102,7 @@ type Dataset struct {
 }
 
 type Sample struct {
-	Uuid            string `json:"uuid"`
+	PublicId        string `json:"publicId"`
 	Name            string `json:"name"`
 	COO             string `json:"coo"`
 	Lymphgen        string `json:"lymphgen"`
@@ -209,8 +209,8 @@ func NewDataset(file string) (*Dataset, error) {
 		Samples: make([]*Sample, 0, 100),
 	}
 
-	err = db.QueryRow(INFO_SQL).Scan(&dataset.Uuid,
-		&dataset.PublicId,
+	err = db.QueryRow(INFO_SQL).Scan(&dataset.PublicId,
+		&dataset.ShortName,
 		&dataset.Name,
 		&dataset.Description,
 		&dataset.Assembly)
@@ -257,7 +257,7 @@ func NewDataset(file string) (*Dataset, error) {
 
 		err := sampleRows.Scan(
 			&sample.Id,
-			&sample.Uuid,
+			&sample.PublicId,
 			&sample.Name,
 			&sample.COO,
 			&sample.Lymphgen,
@@ -265,7 +265,7 @@ func NewDataset(file string) (*Dataset, error) {
 			&sample.Institution,
 			&sample.SampleType)
 
-		sample.Dataset = dataset.Uuid
+		sample.Dataset = dataset.PublicId
 
 		if err != nil {
 			log.Fatal().Msgf("%s", err)
@@ -334,7 +334,7 @@ func (dataset *Dataset) Search(location *dna.Location) (*DatasetResults, error) 
 		return nil, err
 	}
 
-	return &DatasetResults{Dataset: dataset.Uuid, Mutations: mutations}, nil
+	return &DatasetResults{Dataset: dataset.PublicId, Mutations: mutations}, nil
 }
 
 func GetPileup(search *SearchResults) (*PileupResults, error) {
@@ -565,7 +565,8 @@ func NewMutationDBCache(dir string) *DatasetCache {
 				cacheMap[dataset.Assembly] = make(map[string]*Dataset)
 			}
 
-			cacheMap[dataset.Assembly][dataset.Uuid] = dataset
+			cacheMap[dataset.Assembly][dataset.ShortName] = dataset
+			cacheMap[dataset.Assembly][dataset.PublicId] = dataset
 		}
 	}
 
@@ -615,8 +616,8 @@ func (cache *DatasetCache) List(assembly string) ([]*Dataset, error) {
 	return ret, nil
 }
 
-func (cache *DatasetCache) GetDataset(assembly string, uuid string) (*Dataset, error) {
-	dataset, ok := cache.cacheMap[assembly][uuid]
+func (cache *DatasetCache) GetDataset(assembly string, publicId string) (*Dataset, error) {
+	dataset, ok := cache.cacheMap[assembly][publicId]
 
 	if !ok {
 		return nil, fmt.Errorf("dataset not found")
@@ -628,8 +629,8 @@ func (cache *DatasetCache) GetDataset(assembly string, uuid string) (*Dataset, e
 func (cache *DatasetCache) Search(assembly string, location *dna.Location, uuids []string) (*SearchResults, error) {
 	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(uuids))}
 
-	for _, uuid := range uuids {
-		dataset, err := cache.GetDataset(assembly, uuid)
+	for _, publicId := range uuids {
+		dataset, err := cache.GetDataset(assembly, publicId)
 
 		if err != nil {
 			return nil, err
