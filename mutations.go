@@ -66,28 +66,6 @@ type MutationsReq struct {
 	Samples  []string      `json:"samples"`
 }
 
-// type Info struct {
-// 	Uuid        string `json:"uuid"`
-// 	PublicId    string `json:"publicId"`
-// 	Name        string `json:"name"`
-// 	Assembly    string `json:"assembly"`
-// 	Description string `json:"description"`
-// }
-
-// type MutationDBMetadata struct {
-// 	Id          string `json:"id"`
-// 	Uuid        string `json:"uuid"`
-// 	PublicId    string `json:"publicId"`
-// 	Name        string `json:"name"`
-// 	Assembly    string `json:"assembly"`
-// 	Description string `json:"description"`
-// 	Samples     uint   `json:"samples"`
-// }
-
-// type MutationDBDataSet struct {
-// 	Name string `json:"name"`
-// }
-
 type Dataset struct {
 	File        string    `json:"-"`
 	PublicId    string    `json:"publicId"`
@@ -112,19 +90,6 @@ type Sample struct {
 	Id              int    `json:"id"`
 	PairedNormalDna int    `json:"pairedNormalDna"`
 }
-
-// type MutationDBInfo struct {
-// 	//Metadata *MutationDBMetadata `json:"metadata"`
-// 	//Datasets []*MutationDBDataSet `json:"datasets"`
-// 	Id          string `json:"id"`
-// 	Uuid        string `json:"uuid"`
-// 	PublicId    string `json:"publicId"`
-// 	Name        string `json:"name"`
-// 	Assembly    string `json:"assembly"`
-// 	Description string `json:"description"`
-
-// 	Samples []*MutationDBSample `json:"samples"`
-// }
 
 type Mutation struct {
 	Chr     string  `json:"chr"`
@@ -274,40 +239,8 @@ func NewDataset(file string) (*Dataset, error) {
 		dataset.Samples = append(dataset.Samples, &sample)
 	}
 
-	// info := &MutationDBInfo{
-	// 	Metadata: metadata,
-	// 	//Datasets: datasets,
-	// 	Samples: samples,
-	// }
-
 	return dataset, nil
 }
-
-// func (mutationsdb *MutationsDB) AllMutationSets() (*[]MutationSet, error) {
-
-// 	rows, err := mutationsdb.AllMutationSetsStmt.Query()
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	mutationSets := []MutationSet{}
-
-// 	defer rows.Close()
-
-// 	for rows.Next() {
-// 		var mutationSet MutationSet
-// 		err := rows.Scan(&mutationSet.Uuid, &mutationSet.Name)
-
-// 		if err != nil {
-// 			fmt.Println(err)
-// 		}
-
-// 		mutationSets = append(mutationSets, mutationSet)
-// 	}
-
-// 	return &mutationSets, nil
-// }
 
 func (dataset *Dataset) Search(location *dna.Location) (*DatasetResults, error) {
 
@@ -626,10 +559,10 @@ func (cache *DatasetCache) GetDataset(assembly string, publicId string) (*Datase
 	return dataset, nil
 }
 
-func (cache *DatasetCache) Search(assembly string, location *dna.Location, uuids []string) (*SearchResults, error) {
-	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(uuids))}
+func (cache *DatasetCache) Search(assembly string, location *dna.Location, publicIds []string) (*SearchResults, error) {
+	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(publicIds))}
 
-	for _, publicId := range uuids {
+	for _, publicId := range publicIds {
 		dataset, err := cache.GetDataset(assembly, publicId)
 
 		if err != nil {

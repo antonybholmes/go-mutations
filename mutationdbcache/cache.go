@@ -30,10 +30,10 @@ func Dir() string {
 	return instance.Dir()
 }
 
-func GetDataset(assembly string, uuid string) (*mutations.Dataset, error) {
-	return instance.GetDataset(assembly, uuid)
+func GetDataset(assembly string, publicId string) (*mutations.Dataset, error) {
+	return instance.GetDataset(assembly, publicId)
 }
 
-func Search(assembly string, location *dna.Location, uuids []string) (*mutations.SearchResults, error) {
-	return instance.Search(assembly, location, uuids)
+func Search(assembly string, location *dna.Location, publicIds []string) (*mutations.SearchResults, error) {
+	return instance.Search(assembly, location, publicIds)
 }
