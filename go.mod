@@ -17,5 +17,5 @@ require (
 	github.com/antonybholmes/go-basemath v0.0.0-20240825181410-a6174a39116c // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	golang.org/x/sys v0.24.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
 )
