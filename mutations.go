@@ -498,7 +498,7 @@ func NewMutationDBCache(dir string) *DatasetCache {
 				cacheMap[dataset.Assembly] = make(map[string]*Dataset)
 			}
 
-			cacheMap[dataset.Assembly][dataset.ShortName] = dataset
+			//cacheMap[dataset.Assembly][dataset.ShortName] = dataset
 			cacheMap[dataset.Assembly][dataset.PublicId] = dataset
 		}
 	}
@@ -526,6 +526,7 @@ func (cache *DatasetCache) List(assembly string) ([]*Dataset, error) {
 	ids := make([]string, 0, len(cacheMap))
 
 	for id := range cacheMap {
+		log.Debug().Msgf("list dd %s", id)
 		ids = append(ids, id)
 	}
 
