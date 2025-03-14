@@ -16,7 +16,7 @@ require (
 )
 
 require (
-	github.com/antonybholmes/go-basemath v0.0.0-20250303144104-ebe30afaed11 // indirect
+	github.com/antonybholmes/go-basemath v0.0.0-20250307171544-f522e91d1448 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
