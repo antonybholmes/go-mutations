@@ -23,7 +23,7 @@ func GetInstance() *mutations.DatasetCache {
 }
 
 func List(assembly string) ([]*mutations.Dataset, error) {
-	return instance.List(assembly)
+	return instance.ListDatasets(assembly)
 }
 
 func Dir() string {

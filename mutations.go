@@ -512,7 +512,7 @@ func (cache *DatasetCache) Dir() string {
 	return cache.dir
 }
 
-func (cache *DatasetCache) List(assembly string) ([]*Dataset, error) {
+func (cache *DatasetCache) ListDatasets(assembly string) ([]*Dataset, error) {
 
 	cacheMap, ok := cache.cacheMap[assembly]
 
@@ -526,7 +526,6 @@ func (cache *DatasetCache) List(assembly string) ([]*Dataset, error) {
 	ids := make([]string, 0, len(cacheMap))
 
 	for id := range cacheMap {
-		log.Debug().Msgf("list dd %s", id)
 		ids = append(ids, id)
 	}
 
