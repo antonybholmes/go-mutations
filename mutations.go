@@ -14,96 +14,124 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const INFO_SQL = "SELECT public_id, short_name, name, description, assembly FROM info"
+type (
+	ExpressionDataIndex struct {
+		ProbeIds    []string
+		EntrezIds   []string
+		GeneSymbols []string
+	}
 
-// const DATASETS_SQL = `SELECT
-// 	name
-// 	FROM datasets
-// 	ORDER BY datasets.name`
+	ExpressionData struct {
+		Exp    [][]float64
+		Header []string
+		Index  ExpressionDataIndex
+	}
 
-const SAMPLES_SQL = `SELECT
-	id,
-	public_id,
-	name, 
-	coo, 
-	lymphgen, 
-	paired_normal_dna, 
-	institution, 
-	sample_type
-	FROM samples 
-	ORDER BY samples.name`
+	MutationsReq struct {
+		Assembly string        `json:"assembly"`
+		Location *dna.Location `json:"location"`
+		Samples  []string      `json:"samples"`
+	}
 
-const FIND_MUTATIONS_SQL = `SELECT 
-	chr, 
-	start, 
-	end, 
-	ref, 
-	tum, 
-	t_alt_count, 
-	t_depth, 
-	variant_type,
-	vaf,
-	sample_public_id
-	FROM mutations 
-	WHERE chr = ?1 AND start >= ?2 AND end <= ?3 
-	ORDER BY chr, start, end, variant_type`
+	Dataset struct {
+		File        string    `json:"-"`
+		PublicId    string    `json:"publicId"`
+		ShortName   string    `json:"shortName"`
+		Name        string    `json:"name"`
+		Assembly    string    `json:"assembly"`
+		Description string    `json:"description"`
+		Samples     []*Sample `json:"samples"`
 
-type ExpressionDataIndex struct {
-	ProbeIds    []string
-	EntrezIds   []string
-	GeneSymbols []string
-}
+		//db                *sql.DB
+		//findMutationsStmt *sql.Stmt
+	}
 
-type ExpressionData struct {
-	Exp    [][]float64
-	Header []string
-	Index  ExpressionDataIndex
-}
+	Sample struct {
+		PublicId        string `json:"publicId"`
+		Name            string `json:"name"`
+		COO             string `json:"coo"`
+		Lymphgen        string `json:"lymphgen"`
+		Institution     string `json:"institution"`
+		SampleType      string `json:"sampleType"`
+		Dataset         string `json:"dataset"`
+		Id              int    `json:"id"`
+		PairedNormalDna int    `json:"pairedNormalDna"`
+	}
 
-type MutationsReq struct {
-	Assembly string        `json:"assembly"`
-	Location *dna.Location `json:"location"`
-	Samples  []string      `json:"samples"`
-}
+	Mutation struct {
+		Chr     string  `json:"chr"`
+		Ref     string  `json:"ref"`
+		Tum     string  `json:"tum"`
+		Type    string  `json:"type"`
+		Sample  string  `json:"sample"`
+		Dataset string  `json:"dataset,omitempty"`
+		Start   int     `json:"start"`
+		End     int     `json:"end"`
+		Alt     int     `json:"tAltCount"`
+		Depth   int     `json:"tDepth"`
+		Vaf     float32 `json:"vaf"`
+	}
 
-type Dataset struct {
-	File        string    `json:"-"`
-	PublicId    string    `json:"publicId"`
-	ShortName   string    `json:"shortName"`
-	Name        string    `json:"name"`
-	Assembly    string    `json:"assembly"`
-	Description string    `json:"description"`
-	Samples     []*Sample `json:"samples"`
+	DatasetResults struct {
+		Dataset string `json:"dataset"`
 
-	//db                *sql.DB
-	//findMutationsStmt *sql.Stmt
-}
+		Mutations []*Mutation `json:"mutations"`
+	}
 
-type Sample struct {
-	PublicId        string `json:"publicId"`
-	Name            string `json:"name"`
-	COO             string `json:"coo"`
-	Lymphgen        string `json:"lymphgen"`
-	Institution     string `json:"institution"`
-	SampleType      string `json:"sampleType"`
-	Dataset         string `json:"dataset"`
-	Id              int    `json:"id"`
-	PairedNormalDna int    `json:"pairedNormalDna"`
-}
+	PileupResults struct {
+		Location *dna.Location `json:"location"`
+		Datasets []string      `json:"datasets"`
+		//Samples   int                  `json:"samples"`
+		Pileup [][]*Mutation `json:"pileup"`
+	}
 
-type Mutation struct {
-	Chr     string  `json:"chr"`
-	Ref     string  `json:"ref"`
-	Tum     string  `json:"tum"`
-	Type    string  `json:"type"`
-	Sample  string  `json:"sample"`
-	Dataset string  `json:"dataset,omitempty"`
-	Start   uint    `json:"start"`
-	End     uint    `json:"end"`
-	Alt     int     `json:"tAltCount"`
-	Depth   int     `json:"tDepth"`
-	Vaf     float32 `json:"vaf"`
-}
+	SearchResults struct {
+		Location *dna.Location `json:"location"`
+		//Info           []*Info           `json:"info"`
+		DatasetResults []*DatasetResults `json:"results"`
+	}
+
+	DatasetCache struct {
+		cacheMap map[string]map[string]*Dataset
+		dir      string
+	}
+)
+
+const (
+	InfoSql = "SELECT public_id, short_name, name, description, assembly FROM info"
+
+	// const DATASETS_SQL = `SELECT
+	// 	name
+	// 	FROM datasets
+	// 	ORDER BY datasets.name`
+
+	SampleSql = `SELECT
+		id,
+		public_id,
+		name, 
+		coo, 
+		lymphgen, 
+		paired_normal_dna, 
+		institution, 
+		sample_type
+		FROM samples 
+		ORDER BY samples.name`
+
+	FindMutationsSql = `SELECT 
+		chr, 
+		start, 
+		end, 
+		ref, 
+		tum, 
+		t_alt_count, 
+		t_depth, 
+		variant_type,
+		vaf,
+		sample_public_id
+		FROM mutations 
+		WHERE chr = :chr AND start >= :start AND end <= :end 
+		ORDER BY chr, start, end, variant_type`
+)
 
 func (mutation *Mutation) Clone() *Mutation {
 	var ret Mutation = Mutation{Chr: mutation.Chr,
@@ -119,25 +147,6 @@ func (mutation *Mutation) Clone() *Mutation {
 	}
 
 	return &ret
-}
-
-type DatasetResults struct {
-	Dataset string `json:"dataset"`
-
-	Mutations []*Mutation `json:"mutations"`
-}
-
-type PileupResults struct {
-	Location *dna.Location `json:"location"`
-	Datasets []string      `json:"datasets"`
-	//Samples   uint                  `json:"samples"`
-	Pileup [][]*Mutation `json:"pileup"`
-}
-
-type SearchResults struct {
-	Location *dna.Location `json:"location"`
-	//Info           []*Info           `json:"info"`
-	DatasetResults []*DatasetResults `json:"results"`
 }
 
 // func MutationDBKey(assembly string, name string) string {
@@ -174,7 +183,7 @@ func NewDataset(file string) (*Dataset, error) {
 		Samples: make([]*Sample, 0, 100),
 	}
 
-	err = db.QueryRow(INFO_SQL).Scan(&dataset.PublicId,
+	err = db.QueryRow(InfoSql).Scan(&dataset.PublicId,
 		&dataset.ShortName,
 		&dataset.Name,
 		&dataset.Description,
@@ -209,7 +218,7 @@ func NewDataset(file string) (*Dataset, error) {
 	// 	datasets = append(datasets, &dataset)
 	// }
 
-	sampleRows, err := db.Query(SAMPLES_SQL)
+	sampleRows, err := db.Query(SampleSql)
 
 	if err != nil {
 		log.Fatal().Msgf("%s", err)
@@ -253,9 +262,11 @@ func (dataset *Dataset) Search(location *dna.Location) (*DatasetResults, error) 
 	defer db.Close()
 
 	// need to search without chr prefix
-	chr := strings.Replace(location.Chr, "chr", "", 1)
 
-	rows, err := db.Query(FIND_MUTATIONS_SQL, chr, location.Start, location.End)
+	rows, err := db.Query(FindMutationsSql,
+		sql.Named("chr", location.BaseChr()),
+		sql.Named("start", location.Start()),
+		sql.Named("end", location.End()))
 
 	if err != nil {
 		return nil, err
@@ -291,7 +302,7 @@ func GetPileup(search *SearchResults) (*PileupResults, error) {
 
 	// put together by position, type, tum
 
-	pileupMap := make(map[uint]map[string]map[string][]*Mutation)
+	pileupMap := make(map[int]map[string]map[string][]*Mutation)
 
 	for _, datasetResults := range search.DatasetResults {
 		for _, mutation := range datasetResults.Mutations {
@@ -312,7 +323,7 @@ func GetPileup(search *SearchResults) (*PileupResults, error) {
 					// clone and change tumor
 					mut2 := mutation.Clone()
 					mut2.Tum = string(c)
-					addToPileupMap(&pileupMap, mut2.Start+uint(i), mut2)
+					addToPileupMap(&pileupMap, mut2.Start+int(i), mut2)
 				}
 			}
 		}
@@ -328,7 +339,7 @@ func GetPileup(search *SearchResults) (*PileupResults, error) {
 	}
 
 	// get sorted start positions
-	starts := make([]uint, 0, len(pileupMap))
+	starts := make([]int, 0, len(pileupMap))
 
 	for start := range pileupMap {
 		starts = append(starts, start)
@@ -361,7 +372,7 @@ func GetPileup(search *SearchResults) (*PileupResults, error) {
 				mutations := pileupMap[start][variantType][tumor]
 
 				for _, mutation := range mutations {
-					offset := start - location.Start
+					offset := start - location.Start()
 
 					pileup[offset] = append(pileup[offset], mutation)
 				}
@@ -383,7 +394,7 @@ func GetPileup(search *SearchResults) (*PileupResults, error) {
 	return &PileupResults{Location: location, Datasets: datasets, Pileup: pileup}, nil
 }
 
-func addToPileupMap(pileupMap *map[uint]map[string]map[string][]*Mutation, start uint, mutation *Mutation) {
+func addToPileupMap(pileupMap *map[int]map[string]map[string][]*Mutation, start int, mutation *Mutation) {
 
 	_, ok := (*pileupMap)[start]
 
@@ -437,11 +448,6 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 	log.Debug().Msgf("all the muts %d", len(mutations))
 
 	return mutations, nil
-}
-
-type DatasetCache struct {
-	cacheMap map[string]map[string]*Dataset
-	dir      string
 }
 
 func NewMutationDBCache(dir string) *DatasetCache {
