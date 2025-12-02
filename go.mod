@@ -9,13 +9,13 @@ replace github.com/antonybholmes/go-basemath => ../go-basemath
 replace github.com/antonybholmes/go-sys => ../go-sys
 
 require (
-	github.com/antonybholmes/go-dna v0.0.0-20251121215821-87b42eef25c5
+	github.com/antonybholmes/go-dna v0.0.0-20251201172049-608170d85a85
 	github.com/rs/zerolog v1.34.0
 )
 
 require (
-	github.com/antonybholmes/go-basemath v0.0.0-20251121215600-3269f8a98aeb // indirect
-	github.com/antonybholmes/go-sys v0.0.0-20251121215826-41c42c23076e // indirect
+	github.com/antonybholmes/go-basemath v0.0.0-20251201172054-b807a31af9fa // indirect
+	github.com/antonybholmes/go-sys v0.0.0-20251201172055-50c02bde14ef // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/matoous/go-nanoid/v2 v2.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
