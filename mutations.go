@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/antonybholmes/go-dna"
+	"github.com/antonybholmes/go-sys"
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,8 +35,8 @@ type (
 	}
 
 	Dataset struct {
+		Id          string    `json:"id"`
 		File        string    `json:"-"`
-		PublicId    string    `json:"publicId"`
 		ShortName   string    `json:"shortName"`
 		Name        string    `json:"name"`
 		Assembly    string    `json:"assembly"`
@@ -47,24 +48,24 @@ type (
 	}
 
 	Sample struct {
-		PublicId        string `json:"publicId"`
+		Id              string `json:"id"`
 		Name            string `json:"name"`
 		COO             string `json:"coo"`
 		Lymphgen        string `json:"lymphgen"`
 		Institution     string `json:"institution"`
 		SampleType      string `json:"sampleType"`
 		Dataset         string `json:"dataset"`
-		Id              int    `json:"id"`
 		PairedNormalDna int    `json:"pairedNormalDna"`
 	}
 
 	Mutation struct {
+		Id      string  `json:"id"`
 		Chr     string  `json:"chr"`
 		Ref     string  `json:"ref"`
 		Tum     string  `json:"tum"`
 		Type    string  `json:"type"`
 		Sample  string  `json:"sample"`
-		Dataset string  `json:"dataset,omitempty"`
+		Dataset string  `json:"dataset"`
 		Start   int     `json:"start"`
 		End     int     `json:"end"`
 		Alt     int     `json:"tAltCount"`
@@ -98,7 +99,7 @@ type (
 )
 
 const (
-	InfoSql = "SELECT public_id, short_name, name, description, assembly FROM info"
+	InfoSql = "SELECT id, short_name, name, description, assembly FROM info"
 
 	// const DATASETS_SQL = `SELECT
 	// 	name
@@ -107,7 +108,6 @@ const (
 
 	SampleSql = `SELECT
 		id,
-		public_id,
 		name, 
 		coo, 
 		lymphgen, 
@@ -117,7 +117,8 @@ const (
 		FROM samples 
 		ORDER BY samples.name`
 
-	FindMutationsSql = `SELECT 
+	FindMutationsSql = `SELECT
+		id,
 		chr, 
 		start, 
 		end, 
@@ -127,7 +128,7 @@ const (
 		t_depth, 
 		variant_type,
 		vaf,
-		sample_public_id
+		sample_id
 		FROM mutations 
 		WHERE chr = :chr AND start >= :start AND end <= :end 
 		ORDER BY chr, start, end, variant_type`
@@ -170,7 +171,7 @@ func (mutation *Mutation) Clone() *Mutation {
 
 func NewDataset(file string) (*Dataset, error) {
 	//file := path.Join(dir, "mutations.db")
-	db, err := sql.Open("sqlite3", file)
+	db, err := sql.Open(sys.Sqlite3DB, file)
 
 	if err != nil {
 		log.Fatal().Msgf("%s", err)
@@ -183,7 +184,7 @@ func NewDataset(file string) (*Dataset, error) {
 		Samples: make([]*Sample, 0, 100),
 	}
 
-	err = db.QueryRow(InfoSql).Scan(&dataset.PublicId,
+	err = db.QueryRow(InfoSql).Scan(&dataset.Id,
 		&dataset.ShortName,
 		&dataset.Name,
 		&dataset.Description,
@@ -231,7 +232,6 @@ func NewDataset(file string) (*Dataset, error) {
 
 		err := sampleRows.Scan(
 			&sample.Id,
-			&sample.PublicId,
 			&sample.Name,
 			&sample.COO,
 			&sample.Lymphgen,
@@ -239,7 +239,7 @@ func NewDataset(file string) (*Dataset, error) {
 			&sample.Institution,
 			&sample.SampleType)
 
-		sample.Dataset = dataset.PublicId
+		sample.Dataset = dataset.Id
 
 		if err != nil {
 			log.Fatal().Msgf("%s", err)
@@ -253,7 +253,7 @@ func NewDataset(file string) (*Dataset, error) {
 
 func (dataset *Dataset) Search(location *dna.Location) (*DatasetResults, error) {
 
-	db, err := sql.Open("sqlite3", dataset.File) //not clear on what is needed for the user and password
+	db, err := sql.Open(sys.Sqlite3DB, dataset.File) //not clear on what is needed for the user and password
 
 	if err != nil {
 		return nil, err
@@ -278,7 +278,7 @@ func (dataset *Dataset) Search(location *dna.Location) (*DatasetResults, error) 
 		return nil, err
 	}
 
-	return &DatasetResults{Dataset: dataset.PublicId, Mutations: mutations}, nil
+	return &DatasetResults{Dataset: dataset.Id, Mutations: mutations}, nil
 }
 
 func GetPileup(search *SearchResults) (*PileupResults, error) {
@@ -427,6 +427,7 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 		var mutation Mutation
 
 		err := rows.Scan(
+			&mutation.Id,
 			&mutation.Chr,
 			&mutation.Start,
 			&mutation.End,
@@ -496,7 +497,7 @@ func NewMutationDBCache(dir string) *DatasetCache {
 				log.Fatal().Msgf("%s", err)
 			}
 
-			log.Debug().Msgf("Caching %s", dataset.PublicId)
+			log.Debug().Msgf("Caching %s", dataset.Id)
 
 			_, ok := cacheMap[dataset.Assembly]
 
@@ -505,7 +506,7 @@ func NewMutationDBCache(dir string) *DatasetCache {
 			}
 
 			//cacheMap[dataset.Assembly][dataset.ShortName] = dataset
-			cacheMap[dataset.Assembly][dataset.PublicId] = dataset
+			cacheMap[dataset.Assembly][dataset.Id] = dataset
 		}
 	}
 
