@@ -10,12 +10,12 @@ replace github.com/antonybholmes/go-sys => ../go-sys
 
 require (
 	github.com/antonybholmes/go-dna v0.0.0-20251202201834-d297c2ed0db0
+	github.com/antonybholmes/go-sys v0.0.0-20251201172055-50c02bde14ef
 	github.com/rs/zerolog v1.34.0
 )
 
 require (
 	github.com/antonybholmes/go-basemath v0.0.0-20251201172054-b807a31af9fa // indirect
-	github.com/antonybholmes/go-sys v0.0.0-20251201172055-50c02bde14ef // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/matoous/go-nanoid/v2 v2.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -29,7 +29,7 @@ require (
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
