@@ -34,6 +34,20 @@ type (
 		Samples  []string      `json:"samples"`
 	}
 
+	SampleMetadata struct {
+		Id    string `json:"-"`
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+
+	Sample struct {
+		Id      string `json:"id"`
+		Name    string `json:"name"`
+		Dataset string `json:"dataset"`
+		//Metadata []*SampleMetadata `json:"metadata"`
+		Metadata map[string]string `json:"metadata"`
+	}
+
 	Dataset struct {
 		Id          string    `json:"id"`
 		File        string    `json:"-"`
@@ -45,17 +59,6 @@ type (
 
 		//db                *sql.DB
 		//findMutationsStmt *sql.Stmt
-	}
-
-	Sample struct {
-		Id              string `json:"id"`
-		Name            string `json:"name"`
-		COO             string `json:"coo"`
-		Lymphgen        string `json:"lymphgen"`
-		Institution     string `json:"institution"`
-		SampleType      string `json:"sampleType"`
-		Dataset         string `json:"dataset"`
-		PairedNormalDna int    `json:"pairedNormalDna"`
 	}
 
 	Mutation struct {
@@ -108,14 +111,18 @@ const (
 
 	SampleSql = `SELECT
 		id,
-		name, 
-		coo, 
-		lymphgen, 
-		paired_normal_dna, 
-		institution, 
-		sample_type
+		name
 		FROM samples 
 		ORDER BY samples.name`
+
+	SampleMetadataSql = `SELECT
+		sm.id,
+		md.name,
+		sm.value
+		FROM sample_metadata sm
+		JOIN metadata md ON md.id = sm.metadata_id
+		WHERE sm.sample_id = :sample_id
+		ORDER BY md.name`
 
 	FindMutationsSql = `SELECT
 		id,
@@ -228,21 +235,40 @@ func NewDataset(file string) (*Dataset, error) {
 	defer sampleRows.Close()
 
 	for sampleRows.Next() {
-		var sample Sample
+		var sample = Sample{Dataset: dataset.Id, Metadata: make(map[string]string)}
 
 		err := sampleRows.Scan(
 			&sample.Id,
-			&sample.Name,
-			&sample.COO,
-			&sample.Lymphgen,
-			&sample.PairedNormalDna,
-			&sample.Institution,
-			&sample.SampleType)
-
-		sample.Dataset = dataset.Id
+			&sample.Name)
 
 		if err != nil {
 			log.Fatal().Msgf("%s", err)
+		}
+
+		// add the metadata
+		metadataRows, err := db.Query(SampleMetadataSql, sql.Named("sample_id", sample.Id))
+
+		if err != nil {
+			log.Fatal().Msgf("%s", err)
+		}
+
+		defer metadataRows.Close()
+
+		for metadataRows.Next() {
+			var metadata SampleMetadata
+
+			err := metadataRows.Scan(
+				&metadata.Id,
+				&metadata.Name,
+				&metadata.Value)
+
+			if err != nil {
+				log.Fatal().Msgf("%s", err)
+			}
+
+			//sample.Metadata = append(sample.Metadata, &metadata)
+			key := sys.ToCamelCaseKey(metadata.Name)
+			sample.Metadata[key] = metadata.Value
 		}
 
 		dataset.Samples = append(dataset.Samples, &sample)
@@ -345,7 +371,7 @@ func GetPileup(search *SearchResults) (*PileupResults, error) {
 		starts = append(starts, start)
 	}
 
-	sort.Slice(starts, func(i, j int) bool { return starts[i] < starts[j] })
+	slices.Sort(starts)
 
 	// assemble pileups on each start location
 	for _, start := range starts {
@@ -481,11 +507,16 @@ func NewMutationDBCache(dir string) *DatasetCache {
 		//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
 
 		for _, dbFile := range dbFiles {
-			if !strings.HasSuffix(dbFile.Name(), ".db") {
+			// if not directory continue
+			if !dbFile.IsDir() {
 				continue
 			}
 
-			path := filepath.Join(dir, assemblyDir.Name(), dbFile.Name())
+			// if !strings.HasSuffix(dbFile.Name(), ".db") {
+			// 	continue
+			// }
+
+			path := filepath.Join(dir, assemblyDir.Name(), dbFile.Name(), "dataset.db")
 
 			log.Debug().Msgf("Loading mutations from %s...", path)
 
