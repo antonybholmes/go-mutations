@@ -41,11 +41,10 @@ type (
 	}
 
 	Sample struct {
-		Id      string `json:"id"`
-		Name    string `json:"name"`
-		Dataset string `json:"dataset"`
-		//Metadata []*SampleMetadata `json:"metadata"`
 		Metadata map[string]string `json:"metadata"`
+		Id       string            `json:"id"`
+		Name     string            `json:"name"`
+		Dataset  string            `json:"dataset"`
 	}
 
 	Dataset struct {
