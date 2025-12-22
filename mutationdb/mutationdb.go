@@ -1,4 +1,4 @@
-package mutationdbcache
+package mutationdb
 
 import (
 	"sync"
@@ -7,18 +7,18 @@ import (
 	"github.com/antonybholmes/go-mutations"
 )
 
-var instance *mutations.DatasetCache
+var instance *mutations.MutationDB
 var once sync.Once
 
-func InitCache(dir string) (*mutations.DatasetCache, error) {
+func InitMutationDB(dir string) (*mutations.MutationDB, error) {
 	once.Do(func() {
-		instance = mutations.NewMutationDBCache(dir)
+		instance = mutations.NewMutationDB(dir)
 	})
 
 	return instance, nil
 }
 
-func GetInstance() *mutations.DatasetCache {
+func GetInstance() *mutations.MutationDB {
 	return instance
 }
 

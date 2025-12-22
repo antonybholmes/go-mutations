@@ -94,7 +94,7 @@ type (
 		DatasetResults []*DatasetResults `json:"results"`
 	}
 
-	DatasetCache struct {
+	MutationDB struct {
 		cacheMap map[string]map[string]*Dataset
 		dir      string
 	}
@@ -476,7 +476,7 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 	return mutations, nil
 }
 
-func NewMutationDBCache(dir string) *DatasetCache {
+func NewMutationDB(dir string) *MutationDB {
 
 	cacheMap := make(map[string]map[string]*Dataset)
 
@@ -542,16 +542,16 @@ func NewMutationDBCache(dir string) *DatasetCache {
 
 	log.Debug().Msgf("---- end ----")
 
-	return &DatasetCache{dir: dir, cacheMap: cacheMap}
+	return &MutationDB{dir: dir, cacheMap: cacheMap}
 }
 
-func (cache *DatasetCache) Dir() string {
-	return cache.dir
+func (mdb *MutationDB) Dir() string {
+	return mdb.dir
 }
 
-func (cache *DatasetCache) ListDatasets(assembly string) ([]*Dataset, error) {
+func (mdb *MutationDB) ListDatasets(assembly string) ([]*Dataset, error) {
 
-	cacheMap, ok := cache.cacheMap[assembly]
+	cacheMap, ok := mdb.cacheMap[assembly]
 
 	if !ok {
 		// assembly doesn't exist, so return empty array
@@ -586,8 +586,8 @@ func (cache *DatasetCache) ListDatasets(assembly string) ([]*Dataset, error) {
 	return ret, nil
 }
 
-func (cache *DatasetCache) GetDataset(assembly string, publicId string) (*Dataset, error) {
-	dataset, ok := cache.cacheMap[assembly][publicId]
+func (mdb *MutationDB) GetDataset(assembly string, publicId string) (*Dataset, error) {
+	dataset, ok := mdb.cacheMap[assembly][publicId]
 
 	if !ok {
 		return nil, fmt.Errorf("dataset not found")
@@ -596,11 +596,11 @@ func (cache *DatasetCache) GetDataset(assembly string, publicId string) (*Datase
 	return dataset, nil
 }
 
-func (cache *DatasetCache) Search(assembly string, location *dna.Location, publicIds []string) (*SearchResults, error) {
+func (mdb *MutationDB) Search(assembly string, location *dna.Location, publicIds []string) (*SearchResults, error) {
 	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(publicIds))}
 
 	for _, publicId := range publicIds {
-		dataset, err := cache.GetDataset(assembly, publicId)
+		dataset, err := mdb.GetDataset(assembly, publicId)
 
 		if err != nil {
 			return nil, err

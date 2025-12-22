@@ -4,7 +4,7 @@ import (
 	"github.com/antonybholmes/go-dna"
 
 	"github.com/antonybholmes/go-mutations"
-	"github.com/antonybholmes/go-mutations/mutationdbcache"
+	"github.com/antonybholmes/go-mutations/mutationdb"
 	"github.com/antonybholmes/go-sys/log"
 	"github.com/antonybholmes/go-web"
 	"github.com/antonybholmes/go-web/middleware"
@@ -46,7 +46,7 @@ func MutationDatasetsRoute(c *gin.Context) {
 
 	assembly := c.Param("assembly")
 
-	datasets, err := mutationdbcache.List(assembly)
+	datasets, err := mutationdb.List(assembly)
 
 	if err != nil {
 		c.Error(err)
@@ -68,7 +68,7 @@ func MutationsRoute(c *gin.Context) {
 
 	location := params.Locations[0]
 
-	search, err := mutationdbcache.GetInstance().Search(assembly,
+	search, err := mutationdb.GetInstance().Search(assembly,
 		location,
 		params.Datasets)
 
@@ -223,7 +223,7 @@ func PileupRoute(c *gin.Context) {
 		// 	ret.Mutations[i] = make([]*mutations.Mutation, 0, 10)
 		// }
 
-		search, err := mutationdbcache.GetInstance().Search(assembly,
+		search, err := mutationdb.GetInstance().Search(assembly,
 			location,
 			params.Datasets)
 
