@@ -2,12 +2,14 @@ import collections
 import os
 import sqlite3
 import sys
+
 import pandas as pd
 from nanoid import generate
 from uuid_utils import uuid7
 
+genome = "Human"
 assembly = "hg19"
-species = "Human"
+
 idMap = {"20_icg": "20icg", "29_cell_lines": "29cl", "73_bcca": "73primary"}
 
 renameMap = {
@@ -15,6 +17,61 @@ renameMap = {
     "29_cell_lines": "29 cell lines",
     "73_bcca": "73 primary",
 }
+
+HUMAN_CHRS = [
+    "chr1",
+    "chr2",
+    "chr3",
+    "chr4",
+    "chr5",
+    "chr6",
+    "chr7",
+    "chr8",
+    "chr9",
+    "chr10",
+    "chr11",
+    "chr12",
+    "chr13",
+    "chr14",
+    "chr15",
+    "chr16",
+    "chr17",
+    "chr18",
+    "chr19",
+    "chr20",
+    "chr21",
+    "chr22",
+    "chrX",
+    "chrY",
+    "chrM",
+]
+
+CHR_MAP = {chr: idx + 1 for idx, chr in enumerate(HUMAN_CHRS)}
+
+MOUSE_CHRS = [
+    "chr1",
+    "chr2",
+    "chr3",
+    "chr4",
+    "chr5",
+    "chr6",
+    "chr7",
+    "chr8",
+    "chr9",
+    "chr10",
+    "chr11",
+    "chr12",
+    "chr13",
+    "chr14",
+    "chr15",
+    "chr16",
+    "chr17",
+    "chr18",
+    "chr19",
+    "chrX",
+    "chrY",
+    "chrM",
+]
 
 dir = f"../data/modules/mutations/hg19/"
 
@@ -27,15 +84,10 @@ sample_map = {sample: uuid7() for sample in df_samples["Sample"].values}
 
 metadata = ["COO", "LymphGen class", "Paired normal DNA", "Institution", "Sample type"]
 
-# metadata_key_map = {
-#     "COO": "coo",
-#     "LymphGen class": "lymphgen",
-#     "Paired normal DNA": "hasPairedNormalDNA",
-#     "Institution": "institution",
-#     "Sample type": "type",
-# }
+chrs = HUMAN_CHRS if genome.lower() == "human" else MOUSE_CHRS
+chr_map = {chr: idx + 1 for idx, chr in enumerate(chrs)}
 
-metadata_map = {meta: uuid7() for meta in metadata}
+metadata_map = {meta: mi + 1 for mi, meta in enumerate(metadata)}
 
 
 print(sample_map)
@@ -49,13 +101,15 @@ df = pd.read_csv(file, sep="\t", header=0, keep_default_na=False)
 # df = df.sort_values(by="Chromosome")
 
 for dataset in datasets:
-    dataset_uuid = uuid7()  # generate("0123456789abcdefghijklmnopqrstuvwxyz", 12)
+    dataset_id = uuid7()  # generate("0123456789abcdefghijklmnopqrstuvwxyz", 12)
     shortName = idMap[dataset]
     df_samples_d = df_samples[df_samples["Dataset"] == dataset]
 
     print(df_samples_d["Sample"].shape)
 
     dfd = df[df["Sample"].isin(df_samples_d["Sample"])]
+
+    mutation_counts = dfd.shape[0]
 
     dataset_dir = os.path.join(dir, shortName)
 
@@ -70,25 +124,43 @@ for dataset in datasets:
         os.remove(db)
 
     conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     cursor.execute("BEGIN TRANSACTION;")
 
     cursor.execute(
-        f"""CREATE TABLE info (
-        id TEXT PRIMARY KEY ASC,
-        short_name TEXT NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT "",
+        f"""CREATE TABLE chromosomes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+        );
+    """
+    )
+
+    for chr in chrs:
+        cursor.execute(
+            f"INSERT INTO chromosomes (id, name) VALUES ({chr_map[chr]}, '{chr}');"
+        )
+    cursor.execute("COMMIT;")
+
+    cursor.execute("BEGIN TRANSACTION;")
+
+    cursor.execute(
+        f"""CREATE TABLE dataset (
+        id TEXT PRIMARY KEY,
+        genome TEXT NOT NULL,
         assembly TEXT NOT NULL,
-        species TEXT NOT NULL
+        name TEXT NOT NULL,
+        short_name TEXT NOT NULL,
+        mutations INTEGER NOT NULL DEFAULT 0,
+        description TEXT NOT NULL DEFAULT ""
         );
     """
     )
 
     cursor.execute(
         f""" CREATE TABLE metadata (
-        id TEXT PRIMARY KEY ASC,
+        id INTEGER PRIMARY KEY,
         name TEXT NOT NULL
         );
     """
@@ -96,7 +168,7 @@ for dataset in datasets:
 
     cursor.execute(
         f""" CREATE TABLE samples (
-        id TEXT PRIMARY KEY ASC,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL
         );
     """
@@ -104,10 +176,10 @@ for dataset in datasets:
 
     cursor.execute(
         f""" CREATE TABLE sample_metadata (
-        id TEXT PRIMARY KEY ASC,
         sample_id TEXT NOT NULL,
         metadata_id TEXT NOT NULL,
         value TEXT NOT NULL,
+        PRIMARY KEY (sample_id, metadata_id),
         FOREIGN KEY(sample_id) REFERENCES samples(id),
         FOREIGN KEY(metadata_id) REFERENCES metadata(id)
         );
@@ -116,12 +188,12 @@ for dataset in datasets:
 
     cursor.execute(
         f""" CREATE TABLE mutations (
-        id TEXT PRIMARY KEY ASC,
+        id INTEGER PRIMARY KEY,
         sample_id TEXT NOT NULL,
         hugo_gene_symbol TEXT NOT NULL DEFAULT '',
         variant_classification TEXT NOT NULL DEFAULT '',
         variant_type TEXT NOT NULL DEFAULT '',
-        chr TEXT NOT NULL,
+        chr_id INTEGER NOT NULL,
         start INTEGER NOT NULL,
         end INTEGER NOT NULL,
         ref TEXT NOT NULL,
@@ -129,7 +201,8 @@ for dataset in datasets:
         t_alt_count INTEGER NOT NULL DEFAULT -1,
         t_depth INTEGER NOT NULL DEFAULT -1,
         vaf FLOAT NOT NULL DEFAULT -1,
-        FOREIGN KEY(sample_id) REFERENCES samples(id)
+        FOREIGN KEY(sample_id) REFERENCES samples(id),
+        FOREIGN KEY(chr_id) REFERENCES chromosomes(id)
         );
         """
     )
@@ -141,7 +214,7 @@ for dataset in datasets:
     cursor.execute("BEGIN TRANSACTION;")
 
     cursor.execute(
-        f"INSERT INTO info (id, short_name, name, species, assembly) VALUES ('{dataset_uuid}', '{shortName}', '{name}', '{species}', '{assembly}');",
+        f"INSERT INTO dataset (id, short_name, name, genome, assembly, mutations) VALUES ('{dataset_id}', '{shortName}', '{name}', '{genome}', '{assembly}', {mutation_counts});",
     )
 
     cursor.execute("COMMIT;")
@@ -176,7 +249,7 @@ for dataset in datasets:
         for meta in metadata:
             value = df_samples_d[meta].values[i]
             cursor.execute(
-                f"INSERT INTO sample_metadata (id, sample_id, metadata_id, value) VALUES ('{uuid7()}', '{sample_map[sample]}', '{metadata_map[meta]}', '{value}');",
+                f"INSERT INTO sample_metadata (sample_id, metadata_id, value) VALUES ('{sample_map[sample]}', {metadata_map[meta]}, '{value}');",
             )
 
     cursor.execute("COMMIT;")
@@ -202,6 +275,14 @@ for dataset in datasets:
         mutation_uuid = uuid7()  # generate("0123456789abcdefghijklmnopqrstuvwxyz", 12)
 
         chr = dfd["Chromosome"].values[i]
+
+        chr = chr.replace("MT", "M")
+
+        if chr not in chr_map:
+            continue
+
+        chr_id = chr_map[chr]
+
         # save space
         chr = chr.replace("chr", "")
 
@@ -231,7 +312,7 @@ for dataset in datasets:
 
         # so we can merge mutations from different tables, use the public_id as foreign key
         cursor.execute(
-            f"INSERT INTO mutations (id, sample_id, chr, start, end, ref, tum, t_alt_count, t_depth, variant_type, vaf) VALUES ('{mutation_uuid}', '{sample_uuid}', '{chr}', {start}, {end}, '{ref}', '{tum}', {t_alt_count}, {t_depth}, '{variant_type}', {vaf});",
+            f"INSERT INTO mutations (sample_id, chr_id, start, end, ref, tum, t_alt_count, t_depth, variant_type, vaf) VALUES ('{sample_uuid}', {chr_id}, {start}, {end}, '{ref}', '{tum}', {t_alt_count}, {t_depth}, '{variant_type}', {vaf});",
         )
 
     cursor.execute("COMMIT;")
@@ -239,7 +320,7 @@ for dataset in datasets:
     cursor.execute("BEGIN TRANSACTION;")
 
     cursor.execute(
-        f"""CREATE INDEX mutations_chr_start_end_idx ON mutations (chr, start, end);"""
+        f"""CREATE INDEX mutations_chr_id_start_end_idx ON mutations (chr_id, start, end);"""
     )
     cursor.execute(
         f"""CREATE INDEX mutations_gene_idx ON mutations (hugo_gene_symbol); """

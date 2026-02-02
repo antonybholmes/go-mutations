@@ -22,18 +22,18 @@ func GetInstance() *mutations.MutationDB {
 	return instance
 }
 
-func List(assembly string) ([]*mutations.Dataset, error) {
-	return instance.ListDatasets(assembly)
+func Datasets(assembly string, isAdmin bool, permissions []string) ([]*mutations.Dataset, error) {
+	return instance.Datasets(assembly, isAdmin, permissions)
 }
 
 func Dir() string {
 	return instance.Dir()
 }
 
-func GetDataset(assembly string, publicId string) (*mutations.Dataset, error) {
-	return instance.GetDataset(assembly, publicId)
+func Dataset(datasetId string, isAdmin bool, permissions []string) (*mutations.Dataset, error) {
+	return instance.Dataset(datasetId, isAdmin, permissions)
 }
 
-func Search(assembly string, location *dna.Location, publicIds []string) (*mutations.SearchResults, error) {
-	return instance.Search(assembly, location, publicIds)
+func Search(assembly string, location *dna.Location, publicIds []string, isAdmin bool, permissions []string) (*mutations.SearchResults, error) {
+	return instance.Search(assembly, location, publicIds, isAdmin, permissions)
 }

@@ -3,7 +3,6 @@ package mutations
 import (
 	"database/sql"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"slices"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/antonybholmes/go-dna"
 	"github.com/antonybholmes/go-sys"
+	"github.com/antonybholmes/go-web/auth/sqlite"
 	"github.com/rs/zerolog/log"
 )
 
@@ -35,7 +35,7 @@ type (
 	}
 
 	SampleMetadata struct {
-		Id    string `json:"-"`
+		//Id    string `json:"-"`
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	}
@@ -49,19 +49,20 @@ type (
 
 	Dataset struct {
 		Id          string    `json:"id"`
-		File        string    `json:"-"`
-		ShortName   string    `json:"shortName"`
-		Name        string    `json:"name"`
+		Genome      string    `json:"genome"`
 		Assembly    string    `json:"assembly"`
+		Name        string    `json:"name"`
+		ShortName   string    `json:"shortName"`
+		Mutations   int       `json:"mutations"`
 		Description string    `json:"description"`
 		Samples     []*Sample `json:"samples"`
-
+		File        string    `json:"-"`
 		//db                *sql.DB
 		//findMutationsStmt *sql.Stmt
 	}
 
 	Mutation struct {
-		Id      string  `json:"id"`
+		//Id      string  `json:"id"`
 		Chr     string  `json:"chr"`
 		Ref     string  `json:"ref"`
 		Tum     string  `json:"tum"`
@@ -72,7 +73,7 @@ type (
 		End     int     `json:"end"`
 		Alt     int     `json:"tAltCount"`
 		Depth   int     `json:"tDepth"`
-		Vaf     float32 `json:"vaf"`
+		Vaf     float64 `json:"vaf"`
 	}
 
 	DatasetResults struct {
@@ -95,13 +96,45 @@ type (
 	}
 
 	MutationDB struct {
-		cacheMap map[string]map[string]*Dataset
-		dir      string
+		//cacheMap map[string]map[string]*Dataset
+		db  *sql.DB
+		dir string
 	}
 )
 
 const (
-	InfoSql = "SELECT id, short_name, name, description, assembly FROM info"
+	DatasetsSql = `SELECT DISTINCT
+		d.id,
+		d.genome,
+		d.assembly,
+		d.name,
+		d.short_name,
+		d.mutations,
+		d.description
+		FROM datasets d
+		JOIN dataset_permissions dp ON d.id = dp.dataset_id
+		JOIN permissions p ON dp.permission_id = p.id
+		WHERE 
+			(:is_admin = 1 OR p.name IN (<<PERMISSIONS>>))
+			AND d.assembly = :assembly
+		ORDER BY 
+			d.genome,
+			d.assembly`
+
+	DatasetSql = `SELECT 
+		d.id, 
+		d.genome, 
+		d.assembly, 
+		d.name, 
+		d.short_name, 
+		d.mutations, 
+		d.description 
+		FROM datasets d
+		JOIN dataset_permissions dp ON d.id = dp.dataset_id
+		JOIN permissions p ON dp.permission_id = p.id
+		WHERE 
+			(:is_admin = 1 OR p.name IN (<<PERMISSIONS>>))
+			AND d.id = :id`
 
 	// const DATASETS_SQL = `SELECT
 	// 	name
@@ -109,13 +142,12 @@ const (
 	// 	ORDER BY datasets.name`
 
 	SampleSql = `SELECT
-		id,
-		name
-		FROM samples 
-		ORDER BY samples.name`
+		s.id,
+		s.name
+		FROM samples s
+		ORDER BY s.name`
 
 	SampleMetadataSql = `SELECT
-		sm.id,
 		md.name,
 		sm.value
 		FROM sample_metadata sm
@@ -124,20 +156,20 @@ const (
 		ORDER BY md.name`
 
 	FindMutationsSql = `SELECT
-		id,
-		chr, 
-		start, 
-		end, 
-		ref, 
-		tum, 
-		t_alt_count, 
-		t_depth, 
-		variant_type,
-		vaf,
-		sample_id
-		FROM mutations 
-		WHERE chr = :chr AND start >= :start AND end <= :end 
-		ORDER BY chr, start, end, variant_type`
+		m.sample_id,
+		c.name, 
+		m.start, 
+		m.end, 
+		m.ref, 
+		m.tum, 
+		m.t_alt_count, 
+		m.t_depth, 
+		m.variant_type,
+		m.vaf
+		FROM mutations m
+		JOIN chromosomes c ON c.id = m.chr_id
+		WHERE c.name = :chr AND m.start >= :start AND  m.end <= :end 
+		ORDER BY c.name, m.start, m.end, m.variant_type`
 )
 
 func (mutation *Mutation) Clone() *Mutation {
@@ -190,11 +222,14 @@ func NewDataset(file string) (*Dataset, error) {
 		Samples: make([]*Sample, 0, 100),
 	}
 
-	err = db.QueryRow(InfoSql).Scan(&dataset.Id,
-		&dataset.ShortName,
+	err = db.QueryRow(DatasetSql).Scan(&dataset.Id,
+		&dataset.Genome,
+		&dataset.Assembly,
 		&dataset.Name,
+		&dataset.ShortName,
+		&dataset.Mutations,
 		&dataset.Description,
-		&dataset.Assembly)
+	)
 
 	if err != nil {
 		log.Fatal().Msgf("info %s", err)
@@ -257,7 +292,6 @@ func NewDataset(file string) (*Dataset, error) {
 			var metadata SampleMetadata
 
 			err := metadataRows.Scan(
-				&metadata.Id,
 				&metadata.Name,
 				&metadata.Value)
 
@@ -452,7 +486,7 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 		var mutation Mutation
 
 		err := rows.Scan(
-			&mutation.Id,
+			&mutation.Sample,
 			&mutation.Chr,
 			&mutation.Start,
 			&mutation.End,
@@ -462,7 +496,7 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 			&mutation.Depth,
 			&mutation.Type,
 			&mutation.Vaf,
-			&mutation.Sample)
+		)
 
 		if err != nil {
 			fmt.Println(err)
@@ -478,129 +512,178 @@ func rowsToMutations(rows *sql.Rows) ([]*Mutation, error) {
 
 func NewMutationDB(dir string) *MutationDB {
 
-	cacheMap := make(map[string]map[string]*Dataset)
+	db := sys.Must(sql.Open(sys.Sqlite3DB, filepath.Join(dir, "datasets.db?mode=ro")))
 
-	log.Debug().Msgf("---- mutations ----")
+	// cacheMap := make(map[string]map[string]*Dataset)
 
-	assemblyFiles, err := os.ReadDir(dir)
+	// log.Debug().Msgf("---- mutations ----")
 
-	if err != nil {
-		log.Fatal().Msgf("%s", err)
+	// assemblyFiles, err := os.ReadDir(dir)
 
-	}
+	// if err != nil {
+	// 	log.Fatal().Msgf("%s", err)
 
-	for _, assemblyDir := range assemblyFiles {
+	// }
 
-		if !assemblyDir.IsDir() {
-			continue
-		}
+	// for _, assemblyDir := range assemblyFiles {
 
-		dbFiles, err := os.ReadDir(filepath.Join(dir, assemblyDir.Name()))
+	// 	if !assemblyDir.IsDir() {
+	// 		continue
+	// 	}
 
-		if err != nil {
-			log.Fatal().Msgf("%s", err)
+	// 	dbFiles, err := os.ReadDir(filepath.Join(dir, assemblyDir.Name()))
 
-		}
+	// 	if err != nil {
+	// 		log.Fatal().Msgf("%s", err)
 
-		// init the cache
-		//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
+	// 	}
 
-		for _, dbFile := range dbFiles {
-			// if not directory continue
-			if !dbFile.IsDir() {
-				continue
-			}
+	// 	// init the cache
+	// 	//cacheMap[assemblyFile.Name()] = make(map[string]*MutationDB)
 
-			// if !strings.HasSuffix(dbFile.Name(), ".db") {
-			// 	continue
-			// }
+	// 	for _, dbFile := range dbFiles {
+	// 		// if not directory continue
+	// 		if !dbFile.IsDir() {
+	// 			continue
+	// 		}
 
-			path := filepath.Join(dir, assemblyDir.Name(), dbFile.Name(), "dataset.db")
+	// 		// if !strings.HasSuffix(dbFile.Name(), ".db") {
+	// 		// 	continue
+	// 		// }
 
-			log.Debug().Msgf("Loading mutations from %s...", path)
+	// 		path := filepath.Join(dir, assemblyDir.Name(), dbFile.Name(), "dataset.db")
 
-			//metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
+	// 		log.Debug().Msgf("Loading mutations from %s...", path)
 
-			dataset, err := NewDataset(path)
+	// 		//metadata := NewMutationDBMetaData(assemblyFile.Name(), dbFile.Name())
 
-			if err != nil {
-				log.Fatal().Msgf("%s", err)
-			}
+	// 		dataset, err := NewDataset(path)
 
-			log.Debug().Msgf("Caching %s", dataset.Id)
+	// 		if err != nil {
+	// 			log.Fatal().Msgf("%s", err)
+	// 		}
 
-			_, ok := cacheMap[dataset.Assembly]
+	// 		log.Debug().Msgf("Caching %s", dataset.Id)
 
-			if !ok {
-				cacheMap[dataset.Assembly] = make(map[string]*Dataset)
-			}
+	// 		_, ok := cacheMap[dataset.Assembly]
 
-			//cacheMap[dataset.Assembly][dataset.ShortName] = dataset
-			cacheMap[dataset.Assembly][dataset.Id] = dataset
-		}
-	}
+	// 		if !ok {
+	// 			cacheMap[dataset.Assembly] = make(map[string]*Dataset)
+	// 		}
 
-	log.Debug().Msgf("---- end ----")
+	// 		//cacheMap[dataset.Assembly][dataset.ShortName] = dataset
+	// 		cacheMap[dataset.Assembly][dataset.Id] = dataset
+	// 	}
+	// }
 
-	return &MutationDB{dir: dir, cacheMap: cacheMap}
+	// log.Debug().Msgf("---- end ----")
+
+	return &MutationDB{dir: dir, db: db} //cacheMap: cacheMap}
 }
 
 func (mdb *MutationDB) Dir() string {
 	return mdb.dir
 }
 
-func (mdb *MutationDB) ListDatasets(assembly string) ([]*Dataset, error) {
+func (mdb *MutationDB) Datasets(assembly string, isAdmin bool, permissions []string) ([]*Dataset, error) {
+	namedArgs := []any{sql.Named("assembly", assembly), sql.Named("is_admin", isAdmin)}
 
-	cacheMap, ok := mdb.cacheMap[assembly]
+	inClause := sqlite.MakePermissionsInClause(permissions, &namedArgs)
 
-	if !ok {
-		// assembly doesn't exist, so return empty array
-		return []*Dataset{}, nil
+	query := strings.Replace(DatasetsSql, "<<PERMISSIONS>>", inClause, 1)
+
+	rows, err := mdb.db.Query(query, namedArgs...)
+
+	if err != nil {
+		return nil, err //fmt.Errorf("there was an error with the database query")
 	}
 
-	ret := make([]*Dataset, 0, len(cacheMap))
+	defer rows.Close()
 
-	ids := make([]string, 0, len(cacheMap))
+	ret := make([]*Dataset, 0, 10)
 
-	for id := range cacheMap {
-		ids = append(ids, id)
-	}
+	for rows.Next() {
+		var dataset Dataset
 
-	sort.Strings(ids)
-	var dataset *Dataset
+		err := rows.Scan(&dataset.Id,
+			&dataset.Genome,
+			&dataset.Assembly,
+			&dataset.Name,
+			&dataset.ShortName,
+			&dataset.Mutations,
+			&dataset.Description)
 
-	for _, id := range ids {
-		dataset = cacheMap[id]
-
-		if dataset.Assembly == assembly {
-			ret = append(ret, cacheMap[id])
+		if err != nil {
+			return nil, err //fmt.Errorf("there was an error with the database records")
 		}
-	}
 
-	slices.SortFunc(ret,
-		func(a, b *Dataset) int {
-			return strings.Compare(a.Name, b.Name)
-		},
-	)
+		ret = append(ret, &dataset)
+	}
 
 	return ret, nil
+
+	// cacheMap, ok := mdb.cacheMap[assembly]
+
+	// if !ok {
+	// 	// assembly doesn't exist, so return empty array
+	// 	return []*Dataset{}, nil
+	// }
+
+	// ret := make([]*Dataset, 0, len(cacheMap))
+
+	// ids := make([]string, 0, len(cacheMap))
+
+	// for id := range cacheMap {
+	// 	ids = append(ids, id)
+	// }
+
+	// sort.Strings(ids)
+	// var dataset *Dataset
+
+	// for _, id := range ids {
+	// 	dataset = cacheMap[id]
+
+	// 	if dataset.Assembly == assembly {
+	// 		ret = append(ret, cacheMap[id])
+	// 	}
+	// }
+
+	// slices.SortFunc(ret,
+	// 	func(a, b *Dataset) int {
+	// 		return strings.Compare(a.Name, b.Name)
+	// 	},
+	// )
+
+	// return ret, nil
 }
 
-func (mdb *MutationDB) GetDataset(assembly string, publicId string) (*Dataset, error) {
-	dataset, ok := mdb.cacheMap[assembly][publicId]
+func (mdb *MutationDB) Dataset(datasetId string, isAdmin bool, permissions []string) (*Dataset, error) {
+	namedArgs := []any{sql.Named("id", datasetId), sql.Named("is_admin", isAdmin)}
 
-	if !ok {
-		return nil, fmt.Errorf("dataset not found")
+	inClause := sqlite.MakePermissionsInClause(permissions, &namedArgs)
+
+	query := strings.Replace(DatasetSql, "<<PERMISSIONS>>", inClause, 1)
+
+	var dataset Dataset
+
+	err := mdb.db.QueryRow(query, namedArgs...).Scan(&dataset.Id,
+		&dataset.Genome,
+		&dataset.Assembly,
+		&dataset.Name)
+
+	if err != nil {
+		return nil, err //fmt.Errorf("dataset not found")
 	}
 
-	return dataset, nil
+	return &dataset, nil
+
 }
 
-func (mdb *MutationDB) Search(assembly string, location *dna.Location, publicIds []string) (*SearchResults, error) {
+func (mdb *MutationDB) Search(assembly string, location *dna.Location, publicIds []string, isAdmin bool, permissions []string) (*SearchResults, error) {
 	results := SearchResults{Location: location, DatasetResults: make([]*DatasetResults, 0, len(publicIds))}
 
 	for _, publicId := range publicIds {
-		dataset, err := mdb.GetDataset(assembly, publicId)
+		dataset, err := mdb.Dataset(publicId, isAdmin, permissions)
 
 		if err != nil {
 			return nil, err

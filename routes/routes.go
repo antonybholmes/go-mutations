@@ -7,6 +7,7 @@ import (
 	"github.com/antonybholmes/go-mutations/mutationdb"
 	"github.com/antonybholmes/go-sys/log"
 	"github.com/antonybholmes/go-web"
+	"github.com/antonybholmes/go-web/auth"
 	"github.com/antonybholmes/go-web/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -43,59 +44,63 @@ func ParseParamsFromPost(c *gin.Context) (*MutationParams, error) {
 }
 
 func MutationDatasetsRoute(c *gin.Context) {
+	middleware.JwtUserWithPermissionsRoute(c, func(c *gin.Context, isAdmin bool, user *auth.AuthUserJwtClaims) {
+		assembly := c.Param("assembly")
 
-	assembly := c.Param("assembly")
+		datasets, err := mutationdb.Datasets(assembly, isAdmin, user.Permissions)
 
-	datasets, err := mutationdb.List(assembly)
+		if err != nil {
+			c.Error(err)
+			return
+		}
 
-	if err != nil {
-		c.Error(err)
-		return
-	}
-
-	web.MakeDataResp(c, "", datasets)
+		web.MakeDataResp(c, "", datasets)
+	})
 }
 
 func MutationsRoute(c *gin.Context) {
-	assembly := c.Param("assembly")
+	middleware.JwtUserWithPermissionsRoute(c, func(c *gin.Context, isAdmin bool, user *auth.AuthUserJwtClaims) {
+		assembly := c.Param("assembly")
 
-	params, err := ParseParamsFromPost(c)
+		params, err := ParseParamsFromPost(c)
 
-	if err != nil {
-		c.Error(err)
-		return
-	}
+		if err != nil {
+			c.Error(err)
+			return
+		}
 
-	location := params.Locations[0]
+		location := params.Locations[0]
 
-	search, err := mutationdb.GetInstance().Search(assembly,
-		location,
-		params.Datasets)
+		search, err := mutationdb.GetInstance().Search(assembly,
+			location,
+			params.Datasets,
+			isAdmin,
+			user.Permissions)
 
-	if err != nil {
-		c.Error(err)
-		return
-	}
+		if err != nil {
+			c.Error(err)
+			return
+		}
 
-	// if err != nil {
-	// 	return web.ErrorReq(err)
-	// }
+		// if err != nil {
+		// 	return web.ErrorReq(err)
+		// }
 
-	// ret := make([]*mutations.SearchResults, len(locations))
+		// ret := make([]*mutations.SearchResults, len(locations))
 
-	// for i, location := range locations {
-	// 	mutations, err := db.FindMutations(location)
+		// for i, location := range locations {
+		// 	mutations, err := db.FindMutations(location)
 
-	// 	if err != nil {
-	// 		return web.ErrorReq(err)
-	// 	}
+		// 	if err != nil {
+		// 		return web.ErrorReq(err)
+		// 	}
 
-	// 	ret[i] = mutations
-	// }
+		// 	ret[i] = mutations
+		// }
 
-	web.MakeDataResp(c, "", search)
+		web.MakeDataResp(c, "", search)
 
-	//web.MakeDataResp(c, "", mutationdbcache.GetInstance().List())
+	})
 }
 
 type MafResp struct {
@@ -196,7 +201,7 @@ type PileupResp struct {
 }
 
 func PileupRoute(c *gin.Context) {
-	middleware.NewValidator(c).Success(func(validator *middleware.Validator) {
+	middleware.JwtUserWithPermissionsRoute(c, func(c *gin.Context, isAdmin bool, user *auth.AuthUserJwtClaims) {
 
 		assembly := c.Param("assembly")
 
@@ -225,7 +230,9 @@ func PileupRoute(c *gin.Context) {
 
 		search, err := mutationdb.GetInstance().Search(assembly,
 			location,
-			params.Datasets)
+			params.Datasets,
+			isAdmin,
+			user.Permissions)
 
 		if err != nil {
 			log.Debug().Msgf("here 1 %s", err)
