@@ -60,7 +60,7 @@ require (
 
 require (
 	github.com/antonybholmes/go-basemath v0.0.0-20251222161838-164f0a0354bb // indirect
-	github.com/antonybholmes/go-web v0.0.0-20251215211100-5555b69aa3c0
+	github.com/antonybholmes/go-web v0.0.0-20260105204424-d84d17bf4d7a
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/matoous/go-nanoid/v2 v2.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -72,7 +72,6 @@ require (
 	github.com/xuri/excelize/v2 v2.10.0 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect

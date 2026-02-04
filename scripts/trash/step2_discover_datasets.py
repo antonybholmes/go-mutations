@@ -5,6 +5,7 @@ Encode read counts per base in 2 bytes
 @author: Antony Holmes
 """
 import argparse
+import collections
 import os
 import sqlite3
 
@@ -25,7 +26,8 @@ genome_map = {
 
 data = []
 
-datasets = {}
+
+samples = collections.defaultdict(list)
 
 for root, dirs, files in os.walk(dir):
     if "trash" in root:
@@ -45,19 +47,8 @@ for root, dirs, files in os.walk(dir):
 
         dataset_name = dataset_name.replace("_", " ")
 
-        if dataset_name not in datasets:
-            dataset_id = uuid.uuid7()
-            datasets[dataset_name] = {
-                "id": dataset_id,
-                "name": dataset_name,
-                "genome": genome,
-                "assembly": assembly,
-            }
-
-        dataset = datasets[dataset_name]
-
         # filepath = os.path.join(root, filename)
-        print(root, filename, relative_dir, genome, dataset)
+        print(root, filename, relative_dir, genome, dataset_name)
 
         conn = sqlite3.connect(os.path.join(root, filename))
         conn.row_factory = sqlite3.Row
@@ -71,30 +62,43 @@ for root, dirs, files in os.walk(dir):
         )
 
         # Fetch all results
-        results = cursor.fetchall()
+        results = cursor.fetchone()
+
+        url = os.path.join(relative_dir, filename)
 
         # Print the results
-        for row in results:
-            row = {
-                "id": row["id"],
-                "genome": row["genome"],
-                "assembly": row["assembly"],
-                "name": row["name"],
-                "short_name": (
-                    dataset["short_name"]
-                    if "short_name" in dataset
-                    else dataset["name"].replace(" ", "_")
-                ),
-                "mutations": row["mutations"],
-                "description": row["description"],
-                "url": os.path.join(relative_dir, filename),  # where to find the sql db
-            }
-            # row.append(generate("0123456789abcdefghijklmnopqrstuvwxyz", 12))
-            # row.append(dataset["id"])
-            # row.append("Seq")
-            # row.append(relative_dir)
-            # row.append(dataset)
-            data.append(row)
+
+        row = {
+            "id": results["id"],
+            "genome": results["genome"],
+            "assembly": results["assembly"],
+            "name": results["name"],
+            "short_name": (
+                results["short_name"]
+                if "short_name" in results
+                else results["name"].replace(" ", "_")
+            ),
+            "mutations": results["mutations"],
+            "description": results["description"],
+            "url": url,  # where to find the sql db
+        }
+
+        data.append(row)
+
+        cursor.execute("SELECT id, name FROM samples")
+
+        rows = cursor.fetchall()
+
+        for row in rows:
+            samples[results["id"]].append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "url": url,
+                    "dataset_id": results["id"],
+                    # where to find the sql db
+                }
+            )
 
         conn.close()
 
@@ -138,6 +142,18 @@ cursor.execute(
     """
 )
 
+
+cursor.execute(
+    f"""CREATE TABLE samples (
+    id TEXT PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    FOREIGN KEY(dataset_id) REFERENCES datasets(id)
+    );
+    """
+)
+
 cursor.execute(
     f"""CREATE TABLE dataset_permissions (
     dataset_id TEXT NOT NULL,
@@ -171,5 +187,15 @@ for dataset in data:
     cursor.execute(
         f"INSERT INTO dataset_permissions (dataset_id, permission_id) VALUES ('{dataset["id"]}', '{rdf_view_id}');",
     )
+
+    for sample in samples[dataset["id"]]:
+        cursor.execute(
+            f"""INSERT INTO samples (id, dataset_id, name, url) VALUES (
+                '{sample["id"]}',
+                '{dataset["id"]}',
+                '{sample["name"]}',
+                '{sample["url"]}');
+            """,
+        )
 
 cursor.execute("COMMIT;")

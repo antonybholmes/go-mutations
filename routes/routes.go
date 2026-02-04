@@ -212,9 +212,11 @@ func PileupRoute(c *gin.Context) {
 			return
 		}
 
-		log.Debug().Msgf("pileup: %v", params)
+		log.Debug().Msgf("pileup: %v %v", params, user.Permissions)
 
 		location := params.Locations[0]
+
+		log.Debug().Msgf("pileup location: %v", location)
 
 		//assembly := c.Param("assembly")
 		//name := c.Param("name")
@@ -228,7 +230,7 @@ func PileupRoute(c *gin.Context) {
 		// 	ret.Mutations[i] = make([]*mutations.Mutation, 0, 10)
 		// }
 
-		search, err := mutationdb.GetInstance().Search(assembly,
+		search, err := mutationdb.Search(assembly,
 			location,
 			params.Datasets,
 			isAdmin,
