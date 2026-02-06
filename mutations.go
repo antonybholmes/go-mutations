@@ -124,7 +124,7 @@ const (
 		JOIN permissions p ON dp.permission_id = p.id
 		JOIN samples s ON s.dataset_id = d.id
 		WHERE 
-			(:is_admin = 1 OR p.name IN (<<PERMISSIONS>>))
+			<<PERMISSIONS>>
 			AND d.assembly = :assembly
 		ORDER BY
 			d.name, 
@@ -142,7 +142,7 @@ const (
 	// 	JOIN dataset_permissions dp ON d.id = dp.dataset_id
 	// 	JOIN permissions p ON dp.permission_id = p.id
 	// 	WHERE
-	// 		(:is_admin = 1 OR p.name IN (<<PERMISSIONS>>))
+	// 		<<PERMISSIONS>>
 	// 		AND d.id = :id`
 
 	BaseSearchSamplesSql = `SELECT	
@@ -156,7 +156,7 @@ const (
 		JOIN dataset_permissions dp ON s.dataset_id = dp.dataset_id
 		JOIN permissions p ON dp.permission_id = p.id
 		WHERE 
-			(:is_admin = 1 OR p.name IN (<<PERMISSIONS>>))
+			<<PERMISSIONS>>
 			AND d.assembly = :assembly`
 
 	AllSamplesSql = BaseSearchSamplesSql +
@@ -196,14 +196,14 @@ const (
 		JOIN datasets d ON s.dataset_id = d.id
 		JOIN dataset_permissions dp ON s.dataset_id = dp.dataset_id
 		JOIN permissions p ON dp.permission_id = p.id
-		WHERE 
-			c.name = :chr AND m.start >= :start AND  m.end <= :end
-			AND d.uuid IN (<<DATASETS>>)
-			AND (:is_admin = 1 OR p.name IN (<<PERMISSIONS>>))
+		WHERE
+			<<PERMISSIONS>>
+			AND <<DATASETS>>
+			AND c.name = :chr AND m.start >= :start AND  m.end <= :end
 		ORDER BY d.uuid, c.name, m.start, m.end, m.variant_type`
 )
 
-func MakeInDatasetsClause(datasetIds []string, namedArgs *[]any) string {
+func MakeInDatasetsSql(query string, datasetIds []string, namedArgs *[]any) string {
 	inPlaceholders := make([]string, len(datasetIds))
 
 	for i, datasetId := range datasetIds {
@@ -212,7 +212,7 @@ func MakeInDatasetsClause(datasetIds []string, namedArgs *[]any) string {
 		*namedArgs = append(*namedArgs, sql.Named(ph, datasetId))
 	}
 
-	return strings.Join(inPlaceholders, ",")
+	return strings.Replace(query, "<<DATASETS>>", "d.uuid IN ("+strings.Join(inPlaceholders, ",")+")", 1)
 }
 
 func (mutation *Mutation) Clone() *Mutation {
@@ -436,9 +436,7 @@ func (mdb *MutationsDB) Search(assembly string, location *dna.Location, datasetI
 
 	query := sqlite.MakePermissionsSql(FindMutationsSql, permissions, isAdmin, &namedArgs)
 
-	inDatasetsClause := MakeInDatasetsClause(datasetIds, &namedArgs)
-
-	query = strings.Replace(query, "<<DATASETS>>", inDatasetsClause, 1)
+	query = MakeInDatasetsSql(query, datasetIds, &namedArgs)
 
 	rows, err := mdb.db.Query(query, namedArgs...)
 
